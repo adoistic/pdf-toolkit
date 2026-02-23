@@ -1,0 +1,28 @@
+# Output directories
+with_toc/
+docx_output/
+
+# PDF files (large, not source code)
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Lock files from office apps
+.~lock.*
