@@ -34,9 +34,28 @@ SAMPLE_PAGES = 40              # pages to sample for header/footer detection
 MIN_IMAGE_DIM = 3              # min pixels to keep an image (filter 1x1 artifacts)
 BLOCK_IMAGE_WIDTH_RATIO = 0.5  # image wider than 50% of text area = block image
 TABLE_LINE_TOLERANCE = 3       # pt tolerance for line alignment
-MATH_FONTS = {"cmmi", "cmsy", "cmex", "cmss", "cmr", "cmbx", "cmti",
-              "msbm", "msam", "eufm", "rsfs", "bbm", "stmary", "wasy"}
-MATH_CHARS = set("∑∫∂√∞±≤≥≠≈∈∉⊂⊃⊆⊇∪∩∧∨¬∀∃∅∇∝∠∏⊗⊕⊥∥△▽")
+# Fonts ONLY used for math (never for body text)
+MATH_ONLY_FONTS = {"cmmi", "cmsy", "cmex", "msbm", "msam", "eufm",
+                   "rsfs", "bbm", "stmary", "wasy", "esint", "txsy",
+                   "mtmi", "mtsyn", "mtex"}
+# CM fonts used for BODY TEXT in TeX — NOT math indicators
+# (CMR10 = roman text, CMBX10 = bold text, CMTI10 = italic text, etc.)
+TEXT_CM_FONTS = {"cmr", "cmbx", "cmti", "cmss", "cmtt", "cmsl", "cmcsc"}
+# Symbol/special-character fonts
+SYMBOL_FONTS = {"symbol", "symbolmt", "wingdings", "zapfdingbats",
+                "mathematica"}
+# Combined set for is_math_font() — only truly math-indicating fonts
+MATH_FONTS = MATH_ONLY_FONTS | SYMBOL_FONTS
+MATH_CHARS = set(
+    "∑∫∂√∞±≤≥≠≈∈∉⊂⊃⊆⊇∪∩∧∨¬∀∃∅∇∝∠∏⊗⊕⊥∥△▽"
+    "αβγδεζηθικλμνξπρστυφχψω"
+    "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΠΡΣΤΥΦΧΨΩ"
+    "₀₁₂₃₄₅₆₇₈₉⁰¹²³⁴⁵⁶⁷⁸⁹"
+    "×÷·°′″⟨⟩≡≪≫ℏℓ∘≅∝∓∣∤≺≻≼≽"
+    "⊢⊣⊤⊥⊨⊩⊲⊳⊴⊵⋀⋁⋂⋃⋄⋅⋆⋈⋮⋯⋰⋱"
+    "←→↑↓↔↕↦⇐⇒⇔⇑⇓"
+    "ℕℤℚℝℂℵ∂ℱℒℋ"
+)
 EQUATION_DPI = 200
 FONT_SIZE_CLUSTER_THRESHOLD = 0.6
 PARA_GAP_FACTOR = 1.8          # vertical gap > factor × font_size = new paragraph
@@ -144,7 +163,10 @@ def is_italic_font(font_name: str, flags: int) -> bool:
 
 
 def is_math_font(font_name: str) -> bool:
-    """Check if font is a TeX math font."""
+    """Check if font is a math-indicating font (MATH_ONLY or SYMBOL).
+    Does NOT return True for CM body text fonts (CMR10, CMBX10, CMTI10, etc.)
+    which are used for regular text in TeX documents.
+    """
     name_lower = font_name.lower()
     # Strip subset prefix like "ABCDEF+"
     if "+" in name_lower:
