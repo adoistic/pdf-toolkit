@@ -14,6 +14,7 @@ import os
 import re
 import io
 import sys
+import shutil
 from dataclasses import dataclass, field
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -268,6 +269,28 @@ def sanitize_text(text: str) -> str:
             cleaned.append(ch)
         # else: skip invalid character
     return "".join(cleaned)
+
+
+def is_scanned_pdf(doc, sample_size=10):
+    """Detect if a PDF is mostly scanned images with no extractable text.
+    Samples up to sample_size pages evenly distributed through the document.
+    Returns True if <20% of sampled pages have meaningful text (>50 chars).
+    """
+    num_pages = len(doc)
+    if num_pages == 0:
+        return True
+    if num_pages <= sample_size:
+        indices = list(range(num_pages))
+    else:
+        indices = [int(i * num_pages / sample_size) for i in range(sample_size)]
+    pages_with_text = 0
+    for idx in indices:
+        page = doc[idx]
+        text = page.get_text("text").strip()
+        if len(text) > 50:
+            pages_with_text += 1
+    ratio = pages_with_text / len(indices)
+    return ratio < 0.2
 
 
 # ─── Font Mapping ──────────────────────────────────────────────────────────────
@@ -1632,9 +1655,9 @@ def sort_elements(elements: list) -> list:
     return sorted(elements, key=lambda e: (e.bbox[1], e.bbox[0]))
 
 
-def process_pdf(pdf_path: str, output_path: str) -> bool:
+def process_pdf(pdf_path: str, output_path: str) -> str:
     """Convert a single PDF to DOCX.
-    Returns True on success, False on failure.
+    Returns 'success', 'scanned', or 'failed'.
     """
     filename = os.path.basename(pdf_path)
     print(f"\n{'='*70}")
@@ -1645,10 +1668,16 @@ def process_pdf(pdf_path: str, output_path: str) -> bool:
         doc_pdf = fitz.open(pdf_path)
     except Exception as e:
         print(f"  ERROR: Cannot open PDF: {e}")
-        return False
+        return "failed"
 
     num_pages = len(doc_pdf)
     print(f"  Pages: {num_pages}")
+
+    # Check for scanned/image-only PDF
+    if is_scanned_pdf(doc_pdf):
+        print(f"  SKIPPED: scanned/image-only PDF (no extractable text)")
+        doc_pdf.close()
+        return "scanned"
 
     # Step 1: Analyze page geometry
     print("  [1/7] Analyzing page geometry...")
@@ -1752,11 +1781,11 @@ def process_pdf(pdf_path: str, output_path: str) -> bool:
         print(f"  [6/7] Saved: {output_path} ({size_mb:.1f} MB)")
     except Exception as e:
         print(f"  ERROR saving: {e}")
-        return False
+        return "failed"
 
     doc_pdf.close()
     print(f"  [7/7] Done!")
-    return True
+    return "success"
 
 
 def _deduplicate_elements(elements: list) -> list:
@@ -1803,19 +1832,26 @@ def main():
         print("No PDF files found in", work_dir)
         sys.exit(1)
 
+    failed_dir = work_dir / "failed_files"
+
     print(f"Found {len(pdf_files)} PDF files")
     print(f"Output directory: {output_dir}")
 
-    results = {"success": [], "failed": []}
+    results = {"success": [], "failed": [], "scanned": []}
 
     for pdf_path in pdf_files:
         docx_name = pdf_path.stem + ".docx"
         output_path = output_dir / docx_name
 
         try:
-            ok = process_pdf(str(pdf_path), str(output_path))
-            if ok:
+            result = process_pdf(str(pdf_path), str(output_path))
+            if result == "success":
                 results["success"].append(pdf_path.name)
+            elif result == "scanned":
+                results["scanned"].append(pdf_path.name)
+                failed_dir.mkdir(exist_ok=True)
+                shutil.copy2(str(pdf_path), str(failed_dir / pdf_path.name))
+                print(f"  → Copied to failed_files/{pdf_path.name}")
             else:
                 results["failed"].append(pdf_path.name)
         except Exception as e:
@@ -1825,14 +1861,19 @@ def main():
             results["failed"].append(pdf_path.name)
 
     # Summary
+    total = len(pdf_files)
     print(f"\n{'='*70}")
     print("SUMMARY")
     print(f"{'='*70}")
-    print(f"  Succeeded: {len(results['success'])}/{len(pdf_files)}")
+    print(f"  Succeeded: {len(results['success'])}/{total}")
     for name in results["success"]:
         print(f"    ✓ {name}")
+    if results["scanned"]:
+        print(f"  Scanned (→ failed_files/): {len(results['scanned'])}/{total}")
+        for name in results["scanned"]:
+            print(f"    ⚠ {name}")
     if results["failed"]:
-        print(f"  Failed: {len(results['failed'])}/{len(pdf_files)}")
+        print(f"  Failed: {len(results['failed'])}/{total}")
         for name in results["failed"]:
             print(f"    ✗ {name}")
 

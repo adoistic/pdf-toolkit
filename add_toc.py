@@ -10,6 +10,7 @@ Output is saved to a 'with_toc/' subfolder.
 import fitz
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -171,6 +172,30 @@ def looks_like_heading_text(text):
     if re.search(r"\w\(.*\)", t) and " " not in t:
         return False
     return True
+
+
+# ─── Scanned PDF Detection ───────────────────────────────────────────────────
+
+def is_scanned_pdf(doc, sample_size=10):
+    """Detect if a PDF is mostly scanned images with no extractable text.
+    Samples up to sample_size pages evenly distributed through the document.
+    Returns True if <20% of sampled pages have meaningful text (>50 chars).
+    """
+    num_pages = len(doc)
+    if num_pages == 0:
+        return True
+    if num_pages <= sample_size:
+        indices = list(range(num_pages))
+    else:
+        indices = [int(i * num_pages / sample_size) for i in range(sample_size)]
+    pages_with_text = 0
+    for idx in indices:
+        page = doc[idx]
+        text = page.get_text("text").strip()
+        if len(text) > 50:
+            pages_with_text += 1
+    ratio = pages_with_text / len(indices)
+    return ratio < 0.2
 
 
 # ─── Core heading extraction (font-metric based) ────────────────────────────
@@ -848,11 +873,19 @@ def create_toc_pages(headings, page_width, page_height, num_toc_pages):
 # ─── Main orchestrator for one PDF ──────────────────────────────────────────
 
 def process_pdf(src_path, output_path):
-    """Extract headings → build TOC → insert at start → save."""
+    """Extract headings → build TOC → insert at start → save.
+    Returns 'success', 'scanned', or 'skipped'.
+    """
     doc = fitz.open(src_path)
     fname = os.path.basename(src_path)
     print(f"\n{'─'*60}")
     print(f"  {fname}  ({len(doc)} pages)")
+
+    # Check for scanned/image-only PDF
+    if is_scanned_pdf(doc):
+        print("  ⚠  Scanned/image-only PDF (no extractable text) — skipping")
+        doc.close()
+        return "scanned"
 
     # ── 1. Extract headings ──────────────────────────────────────────────
     headings = extract_headings_by_font(doc)
@@ -862,7 +895,7 @@ def process_pdf(src_path, output_path):
     if not headings:
         print("  ✗  No headings found.  Skipping.")
         doc.close()
-        return
+        return "skipped"
 
     # ── 2. Post-process ──────────────────────────────────────────────────
     headings.sort(key=lambda h: (h.page_num, h.y_position))
@@ -877,7 +910,7 @@ def process_pdf(src_path, output_path):
     if not headings:
         print("  ✗  No usable headings after filtering.  Skipping.")
         doc.close()
-        return
+        return "skipped"
 
     # Log summary
     h1_count = sum(1 for h in headings if h.level == 1)
@@ -915,6 +948,7 @@ def process_pdf(src_path, output_path):
     toc_doc.close()
     print(f"  ✓  Saved → {os.path.basename(output_path)}  "
           f"(+{num_toc_pages} TOC page{'s' if num_toc_pages > 1 else ''})")
+    return "success"
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
@@ -922,18 +956,26 @@ def process_pdf(src_path, output_path):
 def main():
     input_dir  = Path("/Users/siraj/Downloads/For_TOC_Make")
     output_dir = input_dir / "with_toc"
+    failed_dir = input_dir / "failed_files"
     output_dir.mkdir(exist_ok=True)
 
     pdfs = sorted(input_dir.glob("*.pdf"))
     print(f"Found {len(pdfs)} PDF files in {input_dir}\n")
 
-    success, skipped, failed = 0, 0, 0
+    success, skipped, scanned, failed = 0, 0, 0, 0
     for p in pdfs:
         out = output_dir / p.name
         try:
-            process_pdf(str(p), str(out))
-            if out.exists():
+            result = process_pdf(str(p), str(out))
+            if result == "success":
                 success += 1
+            elif result == "scanned":
+                scanned += 1
+                failed_dir.mkdir(exist_ok=True)
+                shutil.copy2(str(p), str(failed_dir / p.name))
+                print(f"  → Copied to failed_files/{p.name}")
+            elif result == "skipped":
+                skipped += 1
             else:
                 skipped += 1
         except Exception as exc:
@@ -943,7 +985,14 @@ def main():
             traceback.print_exc()
 
     print(f"\n{'═'*60}")
-    print(f"Done.  {success} succeeded · {skipped} skipped · {failed} failed")
+    summary_parts = [f"{success} succeeded"]
+    if skipped:
+        summary_parts.append(f"{skipped} skipped")
+    if scanned:
+        summary_parts.append(f"{scanned} scanned → failed_files/")
+    if failed:
+        summary_parts.append(f"{failed} failed")
+    print(f"Done.  {' · '.join(summary_parts)}")
     print(f"Output directory: {output_dir}")
 
 
