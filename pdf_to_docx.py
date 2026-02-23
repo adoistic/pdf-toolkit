@@ -29,9 +29,10 @@ from docx.oxml import OxmlElement
 from PIL import Image as PILImage
 
 # ─── Constants ─────────────────────────────────────────────────────────────────
-HEADER_FOOTER_ZONE = 60        # pt from top/bottom edge
-RUNNING_HEADER_RATIO = 0.25    # text on >25% of pages = running header
-SAMPLE_PAGES = 40              # pages to sample for header/footer detection
+HEADER_FOOTER_ZONE_RATIO = 0.08  # top/bottom 8% of page = header/footer zone
+RUNNING_HEADER_RATIO = 0.40      # text on >40% of pages = running header (stricter)
+SAMPLE_PAGES = 40                # pages to sample for header/footer detection
+MAX_HEADER_FOOTER_LEN = 80       # headers/footers must be short text
 MIN_IMAGE_DIM = 3              # min pixels to keep an image (filter 1x1 artifacts)
 BLOCK_IMAGE_WIDTH_RATIO = 0.5  # image wider than 50% of text area = block image
 TABLE_LINE_TOLERANCE = 3       # pt tolerance for line alignment
@@ -441,79 +442,78 @@ def analyze_page_geometry(doc: fitz.Document) -> tuple:
 
 # ─── Header/Footer Detection ──────────────────────────────────────────────────
 
-def detect_headers_footers(doc: fitz.Document) -> tuple:
-    """Detect running headers and footers.
+def detect_headers_footers(doc: fitz.Document, body_size: float = 0) -> tuple:
+    """Detect running headers and footers with strict criteria.
+
+    A text block is only identified as a header/footer if ALL of:
+    1. It appears on >40% of sampled pages (normalized form)
+    2. It is in the top/bottom 8% of the page
+    3. It is short (< 80 chars)
+    4. If body_size is provided, its font size differs from body text
+
     Returns (header_patterns: set, footer_patterns: set) of normalized text.
-    Also returns raw text for DOCX header/footer insertion.
+    Does NOT return display text — we no longer recreate DOCX running headers.
     """
     sample_count = min(SAMPLE_PAGES, len(doc))
     start = min(3, len(doc) - 1)
     step = max(1, (len(doc) - start) // sample_count)
     indices = list(range(start, len(doc), step))[:sample_count]
 
-    header_texts = Counter()  # text → count
+    header_texts = Counter()
     footer_texts = Counter()
-    header_raw = Counter()    # raw text (with original digits)
-    footer_raw = Counter()
 
     for i in indices:
         page = doc[i]
         ph = page.rect.height
+        header_zone = ph * HEADER_FOOTER_ZONE_RATIO
+        footer_zone = ph * (1 - HEADER_FOOTER_ZONE_RATIO)
         blocks = page.get_text("dict")["blocks"]
 
         page_headers = set()
         page_footers = set()
-        page_headers_raw = set()
-        page_footers_raw = set()
 
         for block in blocks:
             if block["type"] != 0:
                 continue
             bb = block["bbox"]
             text = ""
+            block_font_size = 0
+            span_count = 0
             for line in block["lines"]:
                 for span in line["spans"]:
                     text += span["text"]
+                    block_font_size += span.get("size", 0)
+                    span_count += 1
             text = text.strip()
-            if not text or len(text) < 2:
+
+            # Must be short, non-empty text
+            if not text or len(text) < 2 or len(text) > MAX_HEADER_FOOTER_LEN:
                 continue
+
+            # Check font size differs from body (if body_size known)
+            if body_size > 0 and span_count > 0:
+                avg_size = block_font_size / span_count
+                if abs(avg_size - body_size) < 0.5:
+                    continue  # Same size as body text — not a header
 
             normalized = re.sub(r"\d+", "N", text).strip()
 
-            if bb[1] < HEADER_FOOTER_ZONE:
+            if bb[1] < header_zone:
                 page_headers.add(normalized)
-                page_headers_raw.add(text)
-            elif bb[3] > ph - HEADER_FOOTER_ZONE:
+            elif bb[3] > footer_zone:
                 page_footers.add(normalized)
-                page_footers_raw.add(text)
 
         for t in page_headers:
             header_texts[t] += 1
         for t in page_footers:
             footer_texts[t] += 1
-        for t in page_headers_raw:
-            header_raw[t] += 1
-        for t in page_footers_raw:
-            footer_raw[t] += 1
 
     threshold = max(3, int(sample_count * RUNNING_HEADER_RATIO))
 
     header_patterns = {t for t, c in header_texts.items() if c >= threshold}
     footer_patterns = {t for t, c in footer_texts.items() if c >= threshold}
 
-    # Pick the most common raw text for DOCX header/footer
-    header_display = ""
-    footer_display = ""
-    if header_raw:
-        best = header_raw.most_common(1)[0]
-        if best[1] >= threshold:
-            header_display = best[0]
-    if footer_raw:
-        best = footer_raw.most_common(1)[0]
-        if best[1] >= threshold:
-            footer_display = best[0]
-
-    return header_patterns, footer_patterns, header_display, footer_display
+    return header_patterns, footer_patterns
 
 
 def is_in_header_footer_zone(bbox: tuple, page_height: float,
@@ -521,9 +521,11 @@ def is_in_header_footer_zone(bbox: tuple, page_height: float,
                               text: str) -> bool:
     """Check if text is in header/footer zone and matches a known pattern."""
     normalized = re.sub(r"\d+", "N", text).strip()
-    if bbox[1] < HEADER_FOOTER_ZONE and normalized in header_patterns:
+    header_zone = page_height * HEADER_FOOTER_ZONE_RATIO
+    footer_zone = page_height * (1 - HEADER_FOOTER_ZONE_RATIO)
+    if bbox[1] < header_zone and normalized in header_patterns:
         return True
-    if bbox[3] > page_height - HEADER_FOOTER_ZONE and normalized in footer_patterns:
+    if bbox[3] > footer_zone and normalized in footer_patterns:
         return True
     return False
 
@@ -1411,51 +1413,6 @@ def setup_page_layout(doc_docx: Document, page_width: float,
     section.bottom_margin = pt_to_emu(margins["bottom"])
 
 
-def setup_headers_footers(doc_docx: Document, header_text: str,
-                           footer_text: str) -> None:
-    """Set up document headers and footers."""
-    section = doc_docx.sections[0]
-
-    if header_text:
-        section.different_first_page_header_footer = True
-        header = section.header
-        header.is_linked_to_previous = False
-        if header.paragraphs:
-            para = header.paragraphs[0]
-        else:
-            para = header.add_paragraph()
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = para.add_run(re.sub(r"\d+", "", header_text).strip())
-        run.font.size = Pt(9)
-        run.font.color.rgb = RGBColor(128, 128, 128)
-
-    if footer_text:
-        footer = section.footer
-        footer.is_linked_to_previous = False
-        if footer.paragraphs:
-            para = footer.paragraphs[0]
-        else:
-            para = footer.add_paragraph()
-        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        # Add page number field
-        run = para.add_run()
-        fld_char_begin = OxmlElement("w:fldChar")
-        fld_char_begin.set(qn("w:fldCharType"), "begin")
-        run._r.append(fld_char_begin)
-
-        instr = OxmlElement("w:instrText")
-        instr.set(qn("xml:space"), "preserve")
-        instr.text = " PAGE "
-        run._r.append(instr)
-
-        fld_char_end = OxmlElement("w:fldChar")
-        fld_char_end.set(qn("w:fldCharType"), "end")
-        run._r.append(fld_char_end)
-
-        run.font.size = Pt(9)
-        run.font.color.rgb = RGBColor(128, 128, 128)
-
-
 def render_paragraph(doc_docx: Document, para_elem: ParagraphElement,
                       left_margin: float) -> None:
     """Render a paragraph element to DOCX."""
@@ -1688,23 +1645,21 @@ def process_pdf(pdf_path: str, output_path: str) -> str:
 
     text_area_width = page_width - margins["left"] - margins["right"]
 
-    # Step 2: Detect headers/footers
-    print("  [2/7] Detecting headers/footers...")
-    (header_patterns, footer_patterns,
-     header_display, footer_display) = detect_headers_footers(doc_pdf)
-    print(f"         Headers: {len(header_patterns)} patterns, "
-          f"Footers: {len(footer_patterns)} patterns")
-
-    # Step 3: Analyze fonts
-    print("  [3/7] Analyzing document fonts...")
+    # Step 2: Analyze fonts (needed before header detection for font-size filter)
+    print("  [2/7] Analyzing document fonts...")
     body_size, heading_sizes = analyze_document_fonts(doc_pdf)
     print(f"         Body: {body_size:.1f}pt, "
           f"Heading sizes: {sorted(heading_sizes)[:5]}")
 
+    # Step 3: Detect headers/footers (with body_size for font-size filtering)
+    print("  [3/7] Detecting headers/footers...")
+    header_patterns, footer_patterns = detect_headers_footers(doc_pdf, body_size)
+    print(f"         Headers: {len(header_patterns)} patterns, "
+          f"Footers: {len(footer_patterns)} patterns")
+
     # Step 4: Create DOCX
     doc_docx = Document()
     setup_page_layout(doc_docx, page_width, page_height, margins)
-    setup_headers_footers(doc_docx, header_display, footer_display)
 
     # Remove the default empty paragraph
     if doc_docx.paragraphs:
