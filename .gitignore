@@ -1,6 +1,7 @@
 # Output directories
 with_toc/
 docx_output/
+failed_files/
 
 # PDF files (large, not source code)
 *.pdf

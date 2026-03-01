@@ -1778,7 +1778,7 @@ def main():
     # Ensure unbuffered output
     sys.stdout.reconfigure(line_buffering=True)
 
-    work_dir = Path("/Users/siraj/Downloads/For_TOC_Make")
+    work_dir = Path(".")
     output_dir = work_dir / "docx_output"
     output_dir.mkdir(exist_ok=True)
 

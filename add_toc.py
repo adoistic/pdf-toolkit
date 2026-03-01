@@ -16,15 +16,16 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 # ─── Layout constants for generated TOC pages ───────────────────────────────
-MARGIN_TOP = 72
-MARGIN_BOTTOM = 72
-MARGIN_LEFT = 72
-MARGIN_RIGHT = 72
-TOC_TITLE_SIZE = 18
-TOC_CHAPTER_SIZE = 11
-TOC_SECTION_SIZE = 10
+MARGIN_TOP = 50
+MARGIN_BOTTOM = 50
+MARGIN_LEFT = 45
+MARGIN_RIGHT = 45
+TOC_TITLE_SIZE = 14
+TOC_CHAPTER_SIZE = 9
+TOC_SECTION_SIZE = 8
 TOC_LINE_SPACING_FACTOR = 1.6
 TOC_SECTION_INDENT = 20
+TOC_MAX_LINES = 3                       # max wrapped lines per entry; longer → removed
 DOT_LEADER_COLOR = (0.5, 0.5, 0.5)
 SEPARATOR_COLOR = (0.6, 0.6, 0.6)
 
@@ -543,13 +544,15 @@ def deduplicate_headings(headings):
     return result
 
 
-def select_toc_headings(headings):
+def select_toc_headings(headings, h1_only=False):
     """
     Apply the user's rule:
       • If H1 (largest heading size) has > 3 entries → keep H1 (+ H2 if present)
       • If H1 has ≤ 3 entries → it's probably a book/part title;
         promote H2 to be the primary TOC level.
     Only two levels are ever included in the final TOC.
+
+    If *h1_only* is True, only H1-level entries are kept (H2 is dropped).
 
     Sanity check: if we end up with too many entries, narrow the selection.
     """
@@ -590,6 +593,10 @@ def select_toc_headings(headings):
 
     # ── Sanity check: over-extraction guard ──────────────────────────────
     selected = _guard_over_extraction(selected)
+
+    # ── Optional: drop everything except H1 ──────────────────────────────
+    if h1_only:
+        selected = [h for h in selected if h.level == 1]
 
     return selected
 
@@ -780,12 +787,55 @@ def supplement_with_keyword_chapters(doc, headings):
     return headings
 
 
+# ─── TOC text wrapping ──────────────────────────────────────────────────────
+
+def wrap_toc_entry(text, font, fontsize, full_width, last_line_width):
+    """
+    Word-wrap a TOC entry.
+    full_width:      available width for non-last lines.
+    last_line_width: available width for the last line (room for dots + page num).
+    Returns a list of line strings.
+    """
+    words = text.split()
+    if not words:
+        return [text]
+
+    lines = []
+    current = words[0]
+
+    for word in words[1:]:
+        test = current + " " + word
+        if font.text_length(test, fontsize=fontsize) <= full_width:
+            current = test
+        else:
+            lines.append(current)
+            current = word
+    lines.append(current)
+
+    # Ensure last line fits within last_line_width (room for dots + page number)
+    while (len(lines) > 0
+           and font.text_length(lines[-1], fontsize=fontsize) > last_line_width):
+        last_words = lines[-1].split()
+        if len(last_words) <= 1:
+            break  # single word too long, can't split further
+        lines[-1] = " ".join(last_words[:-1])
+        lines.append(last_words[-1])
+
+    return lines
+
+
 # ─── TOC page creation ──────────────────────────────────────────────────────
 
-def create_toc_pages(headings, page_width, page_height, num_toc_pages):
+def create_toc_pages(headings, page_width, page_height, count_toc_pages=True):
     """
-    Build a small fitz.Document containing the TOC page(s).
-    Page numbers displayed are  original_page + num_toc_pages + 1  (1-based).
+    Build a fitz.Document containing the TOC page(s).
+    Long entries wrap up to TOC_MAX_LINES lines; entries that still
+    don't fit are removed entirely.
+    Returns (toc_doc, filtered_headings, num_toc_pages).
+
+    If *count_toc_pages* is True, page numbers include the TOC pages
+    (original_page + num_toc_pages + 1).  If False, page numbers match
+    the original PDF (original_page + 1).
     """
     toc_doc = fitz.open()
 
@@ -793,7 +843,41 @@ def create_toc_pages(headings, page_width, page_height, num_toc_pages):
     font_bold    = fitz.Font("hebo")
     right_edge   = page_width - MARGIN_RIGHT
 
-    heading_idx = 0
+    # ── Step 1: wrap every entry and drop those exceeding TOC_MAX_LINES ──
+    prepared = []   # (heading, [wrapped_lines], fontsize, fontname, font_obj, indent)
+    for h in headings:
+        if h.level == 1:
+            fs, fn, fobj, ind = TOC_CHAPTER_SIZE, "hebo", font_bold, 0
+        else:
+            fs, fn, fobj, ind = TOC_SECTION_SIZE, "helv", font_regular, TOC_SECTION_INDENT
+
+        full_w = right_edge - MARGIN_LEFT - ind
+        last_w = full_w - 60          # room for dot leader + page number
+        wrapped = wrap_toc_entry(h.text, fobj, fs, full_w, last_w)
+
+        if len(wrapped) > TOC_MAX_LINES:
+            continue                  # entry too long — remove it
+        prepared.append((h, wrapped, fs, fn, fobj, ind))
+
+    if not prepared:
+        return toc_doc, [], 0
+
+    # ── Step 2: simulate layout to determine num_toc_pages ───────────────
+    title_block = TOC_TITLE_SIZE + 6 + 12
+    max_y = page_height - MARGIN_BOTTOM
+    y = MARGIN_TOP + title_block      # first page includes title
+    num_toc_pages = 1
+
+    for i, (h, wrapped, fs, _fn, _fobj, _ind) in enumerate(prepared):
+        extra = 4 if h.level == 1 and i > 0 else 0
+        entry_h = extra + len(wrapped) * fs * TOC_LINE_SPACING_FACTOR
+        if y + entry_h > max_y:
+            num_toc_pages += 1
+            y = MARGIN_TOP
+        y += entry_h
+
+    # ── Step 3: render ───────────────────────────────────────────────────
+    entry_idx = 0
     for toc_pg in range(num_toc_pages):
         page = toc_doc.new_page(width=page_width, height=page_height)
         y = MARGIN_TOP
@@ -804,75 +888,65 @@ def create_toc_pages(headings, page_width, page_height, num_toc_pages):
                 fitz.Point(MARGIN_LEFT, y), "Table of Contents",
                 fontsize=TOC_TITLE_SIZE, fontname="hebo", color=(0, 0, 0),
             )
-            y += 8
+            y += 6
             page.draw_line(
                 fitz.Point(MARGIN_LEFT, y), fitz.Point(right_edge, y),
                 color=SEPARATOR_COLOR, width=0.5,
             )
-            y += 16
+            y += 12
 
-        max_y = page_height - MARGIN_BOTTOM
+        while entry_idx < len(prepared):
+            h, wrapped, fs, fn, fobj, ind = prepared[entry_idx]
+            extra = 4 if h.level == 1 and entry_idx > 0 else 0
+            entry_h = extra + len(wrapped) * fs * TOC_LINE_SPACING_FACTOR
 
-        while heading_idx < len(headings) and y < max_y - 15:
-            h = headings[heading_idx]
+            if y + entry_h > max_y:
+                break
 
-            if h.level == 1:
-                fontsize = TOC_CHAPTER_SIZE
-                fontname = "hebo"
-                fmeasure = font_bold
-                indent = 0
-                if heading_idx > 0:
-                    y += 4
-            else:
-                fontsize = TOC_SECTION_SIZE
-                fontname = "helv"
-                fmeasure = font_regular
-                indent = TOC_SECTION_INDENT
-
-            display_page = h.page_num + num_toc_pages + 1
+            y += extra
+            page_offset = num_toc_pages if count_toc_pages else 0
+            display_page = h.page_num + page_offset + 1
             pn_str = str(display_page)
 
-            entry = h.text
-            max_tw = right_edge - MARGIN_LEFT - indent - 60
-            tw = fmeasure.text_length(entry, fontsize=fontsize)
-            if tw > max_tw:
-                while tw > max_tw and len(entry) > 10:
-                    entry = entry[:-1]
-                    tw = fmeasure.text_length(entry + "…", fontsize=fontsize)
-                entry += "…"
-                tw = fmeasure.text_length(entry, fontsize=fontsize)
+            for li, line_text in enumerate(wrapped):
+                is_last = (li == len(wrapped) - 1)
 
-            y += fontsize
-            page.insert_text(
-                fitz.Point(MARGIN_LEFT + indent, y), entry,
-                fontsize=fontsize, fontname=fontname, color=(0, 0, 0),
-            )
-            pn_w = font_regular.text_length(pn_str, fontsize=fontsize)
-            page.insert_text(
-                fitz.Point(right_edge - pn_w, y), pn_str,
-                fontsize=fontsize, fontname="helv", color=(0, 0, 0),
-            )
-            dot_start = MARGIN_LEFT + indent + tw + 6
-            dot_end   = right_edge - pn_w - 6
-            if dot_end > dot_start + 10:
-                dot_unit = font_regular.text_length(". ", fontsize=fontsize - 1)
-                if dot_unit > 0:
-                    dots = ". " * int((dot_end - dot_start) / dot_unit)
+                y += fs
+                page.insert_text(
+                    fitz.Point(MARGIN_LEFT + ind, y), line_text,
+                    fontsize=fs, fontname=fn, color=(0, 0, 0),
+                )
+
+                if is_last:
+                    pn_w = font_regular.text_length(pn_str, fontsize=fs)
                     page.insert_text(
-                        fitz.Point(dot_start, y), dots,
-                        fontsize=fontsize - 1, fontname="helv",
-                        color=DOT_LEADER_COLOR,
+                        fitz.Point(right_edge - pn_w, y), pn_str,
+                        fontsize=fs, fontname="helv", color=(0, 0, 0),
                     )
+                    tw = fobj.text_length(line_text, fontsize=fs)
+                    dot_start = MARGIN_LEFT + ind + tw + 6
+                    dot_end   = right_edge - pn_w - 6
+                    if dot_end > dot_start + 10:
+                        dot_unit = font_regular.text_length(". ", fontsize=fs - 1)
+                        if dot_unit > 0:
+                            dots = ". " * int((dot_end - dot_start) / dot_unit)
+                            page.insert_text(
+                                fitz.Point(dot_start, y), dots,
+                                fontsize=fs - 1, fontname="helv",
+                                color=DOT_LEADER_COLOR,
+                            )
 
-            y += fontsize * (TOC_LINE_SPACING_FACTOR - 1)
-            heading_idx += 1
+                y += fs * (TOC_LINE_SPACING_FACTOR - 1)
 
-    return toc_doc
+            entry_idx += 1
+
+    filtered = [e[0] for e in prepared]
+    return toc_doc, filtered, num_toc_pages
 
 
 # ─── Main orchestrator for one PDF ──────────────────────────────────────────
 
-def process_pdf(src_path, output_path):
+def process_pdf(src_path, output_path, h1_only=False, count_toc_pages=True):
     """Extract headings → build TOC → insert at start → save.
     Returns 'success', 'scanned', or 'skipped'.
     """
@@ -903,7 +977,7 @@ def process_pdf(src_path, output_path):
     headings = merge_adjacent_headings_across_blocks(headings)
     headings = supplement_with_keyword_chapters(doc, headings)
     headings = deduplicate_headings(headings)
-    headings = select_toc_headings(headings)
+    headings = select_toc_headings(headings, h1_only=h1_only)
     headings.sort(key=lambda h: (h.page_num, h.y_position))
     headings = normalize_hierarchy(headings)
 
@@ -922,27 +996,31 @@ def process_pdf(src_path, output_path):
     if len(headings) > 8:
         print(f"     … and {len(headings) - 8} more")
 
-    # ── 3. Figure out how many TOC pages we need ─────────────────────────
+    # ── 3. Create TOC pages (handles wrapping and page count) ────────────
     pw, ph = doc[0].rect.width, doc[0].rect.height
-    usable = ph - MARGIN_TOP - MARGIN_BOTTOM - 50
-    per_page = max(1, int(usable / (TOC_CHAPTER_SIZE * TOC_LINE_SPACING_FACTOR)))
-    num_toc_pages = max(1, -(-len(headings) // per_page))  # ceil div
+    toc_doc, headings, num_toc_pages = create_toc_pages(
+        headings, pw, ph, count_toc_pages=count_toc_pages,
+    )
 
-    # ── 4. Create TOC pages ──────────────────────────────────────────────
-    toc_doc = create_toc_pages(headings, pw, ph, num_toc_pages)
+    if not headings:
+        print("  ✗  No headings fit within TOC line limit.  Skipping.")
+        doc.close()
+        toc_doc.close()
+        return "skipped"
 
-    # ── 5. Insert TOC at the front of the document ───────────────────────
+    # ── 4. Insert TOC at the front of the document ───────────────────────
     doc.insert_pdf(toc_doc, start_at=0)
 
-    # ── 6. Set the bookmark / outline tree (sidebar navigation) ──────────
+    # ── 5. Set the bookmark / outline tree (sidebar navigation) ──────────
     toc_entries = []
     for h in headings:
+        # Bookmarks always use real page position (including TOC pages)
         bk_page = h.page_num + num_toc_pages + 1   # 1-based for set_toc()
         toc_entries.append([h.level, h.text, bk_page])
     if toc_entries:
         doc.set_toc(toc_entries)
 
-    # ── 7. Save ──────────────────────────────────────────────────────────
+    # ── 6. Save ──────────────────────────────────────────────────────────
     doc.save(output_path, deflate=True, garbage=4)
     doc.close()
     toc_doc.close()
@@ -954,7 +1032,7 @@ def process_pdf(src_path, output_path):
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 def main():
-    input_dir  = Path("/Users/siraj/Downloads/For_TOC_Make")
+    input_dir  = Path(".")
     output_dir = input_dir / "with_toc"
     failed_dir = input_dir / "failed_files"
     output_dir.mkdir(exist_ok=True)
