@@ -9,6 +9,15 @@ Uses PyMuPDF (fitz) for PDF reading, python-docx for DOCX generation.
 Output is saved to a 'docx_output/' subfolder.
 """
 
+import sys
+import io as _io
+
+# Force UTF-8 stdout so Unicode symbols in print() don't crash on Windows cp1252
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = _io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+    )
+
 import fitz
 import os
 import re

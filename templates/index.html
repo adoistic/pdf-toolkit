@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Toolkit</title>
+    <link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+    <!-- Top Bar -->
+    <header class="top-bar">
+        <div class="top-bar-row">
+            <span class="app-title">PDF Toolkit</span>
+            <label class="top-label">Folder:</label>
+            <input type="text" id="dir-path" placeholder="Select a folder..." readonly>
+            <button id="browse-folder-btn" class="btn">Browse</button>
+            <span id="file-count" class="count-label"></span>
+            <span class="spacer"></span>
+            <div class="toc-options">
+                <label><input type="checkbox" id="h1-only"> H1 only</label>
+                <label><input type="checkbox" id="count-toc" checked> Count TOC pages</label>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content: Sidebar + Editor -->
+    <div class="main-content">
+        <!-- Left Sidebar: File List -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Files</span>
+                <span id="remaining-count" class="count-label"></span>
+            </div>
+            <div id="file-list" class="file-list">
+                <div class="empty-state sidebar-empty" id="sidebar-empty">
+                    <p>No folder loaded.<br>Click <strong>Browse</strong> to start.</p>
+                </div>
+            </div>
+            <div class="sidebar-footer" id="sidebar-footer">
+                <button id="skip-all-btn" class="btn" disabled>Skip All Remaining</button>
+                <button id="toc-batch-btn" class="btn" disabled>Add TOC to All PDFs</button>
+                <button id="docx-batch-btn" class="btn" disabled>Convert All to DOCX</button>
+            </div>
+        </aside>
+
+        <!-- Right Panel: Editor -->
+        <main class="editor-panel">
+            <div class="editor-toolbar" id="editor-toolbar">
+                <div class="toolbar-row">
+                    <span id="editor-filename" class="editor-status"></span>
+                    <span class="spacer"></span>
+                    <span id="selection-count" class="count-label"></span>
+                </div>
+                <div class="toolbar-row">
+                    <button id="delete-btn" class="btn btn-danger" disabled>Delete Selected</button>
+                    <button id="save-btn" class="btn" disabled>Save</button>
+                    <button id="finish-btn" class="btn btn-primary" disabled>Save &amp; Finish</button>
+                    <button id="skip-current-btn" class="btn" disabled>Skip (TOC Only)</button>
+                </div>
+            </div>
+            <div id="page-grid" class="page-grid">
+                <div class="empty-state" id="editor-empty">
+                    <div class="empty-icon">&#128196;</div>
+                    <p>Select a file from the sidebar to begin editing.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar" id="status-bar">
+        <span id="status-text">Ready</span>
+        <progress id="status-progress" value="0" max="100" hidden></progress>
+    </footer>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal" hidden>
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <button class="modal-close" title="Close (Esc)">&times;</button>
+            <button class="modal-nav modal-prev" title="Previous (Left arrow)">&lsaquo;</button>
+            <div class="preview-img-container">
+                <img id="preview-img" alt="Page preview" draggable="false">
+                <div id="region-overlay" class="region-overlay" hidden></div>
+                <div id="placement-marker" class="placement-marker" hidden></div>
+            </div>
+            <button class="modal-nav modal-next" title="Next (Right arrow)">&rsaquo;</button>
+            <div class="modal-footer">
+                <span id="preview-page-label"></span>
+                <button id="region-select-btn" class="btn btn-region" title="Draw a rectangle to select a region">Select Region</button>
+                <button id="pagenum-btn" class="btn btn-region" title="Click a position to place page numbers">Page Numbers</button>
+            </div>
+            <div id="redact-actions" class="redact-actions" hidden>
+                <span class="redact-label">Remove selected region:</span>
+                <button id="redact-page-btn" class="btn btn-danger">From this page</button>
+                <button id="redact-all-btn" class="btn btn-danger">From all pages</button>
+                <button id="redact-all-books-btn" class="btn btn-danger" title="Remove this region from all pages of every PDF in the folder">From all books</button>
+                <button id="redact-cancel-btn" class="btn">Cancel</button>
+            </div>
+            <div id="pagenumber-config" class="pagenumber-config" hidden>
+                <span class="config-label">Page Numbers</span>
+                <label>Size <input type="number" id="pn-fontsize" value="10" min="4" max="72" step="1"></label>
+                <label>Start <input type="number" id="pn-start" value="1" min="0" step="1"></label>
+                <label>Font
+                    <select id="pn-font">
+                        <option value="helv">Helvetica</option>
+                        <option value="tiro">Times</option>
+                        <option value="cour">Courier</option>
+                    </select>
+                </label>
+                <span class="config-hint" id="pn-hint">Click on the page to place</span>
+                <button id="pn-apply-btn" class="btn btn-primary" disabled>Apply to all pages</button>
+                <button id="pn-apply-all-btn" class="btn btn-primary" disabled title="Add page numbers to every PDF in the folder (each book starts from page 1)">Apply to all books in folder</button>
+                <button id="pn-cancel-btn" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DOCX Batch Modal -->
+    <div id="docx-modal" class="modal" hidden>
+        <div class="modal-backdrop" id="docx-modal-backdrop"></div>
+        <div class="docx-modal-content">
+            <div class="docx-modal-header">
+                <h3>Convert All PDFs to DOCX</h3>
+                <button id="docx-close-btn" class="modal-close-small" title="Close">&times;</button>
+            </div>
+            <div class="progress-container">
+                <progress id="batch-progress" value="0" max="100"></progress>
+            </div>
+            <span id="batch-progress-label" class="progress-label"></span>
+            <pre id="log-output"></pre>
+            <div class="docx-modal-footer">
+                <button id="stop-btn" class="btn btn-danger" disabled>Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- License Modal (non-dismissable) -->
+    <div id="license-modal" class="modal" hidden>
+        <div class="modal-backdrop"></div>
+        <div class="license-modal-content">
+            <h2>PDF Toolkit</h2>
+            <p id="license-message">Enter your license key to get started.</p>
+            <input type="text" id="license-key-input"
+                   placeholder="PDFT-XXXX-XXXX-XXXX"
+                   spellcheck="false" autocomplete="off" maxlength="19">
+            <p id="license-error" class="license-error" hidden></p>
+            <button id="license-activate-btn" class="btn btn-primary">Activate</button>
+        </div>
+    </div>
+
+    <script src="/static/app.js?v=3"></script>
+</body>
+</html>

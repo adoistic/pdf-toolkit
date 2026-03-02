@@ -7,6 +7,15 @@ Uses PyMuPDF (fitz) for all PDF operations.
 Output is saved to a 'with_toc/' subfolder.
 """
 
+import sys
+import io
+
+# Force UTF-8 stdout so Unicode symbols in print() don't crash on Windows cp1252
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True,
+    )
+
 import fitz
 import os
 import re
@@ -353,6 +362,36 @@ def extract_headings_by_keyword(doc):
             ))
             break   # only first match per page
 
+    return candidates
+
+
+def extract_headings_from_outline(doc):
+    """
+    Last-resort fallback: use the PDF's existing bookmark / outline tree
+    (doc.get_toc()) as heading entries.  Returns a list of HeadingCandidate
+    or [] if the document has no outline.
+
+    TOC entries are [level, title, 1-based-page].  We convert to 0-based
+    page numbers and keep only level 1 and 2 entries.
+    """
+    toc = doc.get_toc()
+    if not toc:
+        return []
+
+    candidates = []
+    for level, title, page_1based in toc:
+        if level > 2:
+            continue
+        title = title.strip()
+        if not title:
+            continue
+        page_0 = max(0, page_1based - 1)      # convert to 0-based
+        if page_0 >= len(doc):
+            page_0 = len(doc) - 1
+        candidates.append(HeadingCandidate(
+            text=title, page_num=page_0, font_size=0,
+            is_bold=True, y_position=0, level=level,
+        ))
     return candidates
 
 
@@ -964,7 +1003,12 @@ def process_pdf(src_path, output_path, h1_only=False, count_toc_pages=True):
     # ── 1. Extract headings ──────────────────────────────────────────────
     headings = extract_headings_by_font(doc)
     if not headings:
-        print("  ⚠  Font metrics unusable — falling back to keyword detection")
+        print("  ⚠  Font metrics unusable — falling back to PDF outline/bookmarks")
+        headings = extract_headings_from_outline(doc)
+        if headings:
+            print(f"  ✓  Found {len(headings)} entries from existing PDF outline")
+    if not headings:
+        print("  ⚠  No outline — falling back to keyword detection")
         headings = extract_headings_by_keyword(doc)
     if not headings:
         print("  ✗  No headings found.  Skipping.")

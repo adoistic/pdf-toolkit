@@ -27,3 +27,7 @@ Thumbs.db
 
 # Lock files from office apps
 .~lock.*
+
+# Firebase credentials (admin-only, NEVER distribute)
+service_account.json
+.env

@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // License documents — keyed by SHA-256 hash of the license key
+    match /licenses/{keyHash} {
+
+      // Read: anyone who knows the key hash can read the document.
+      // The hash acts as the secret — you can't enumerate documents
+      // without knowing the original license key.
+      allow read: if true;
+
+      // Update: allow setting machine_id exactly once.
+      // - machine_id must currently be empty ("")
+      // - only the machine_id field may be changed
+      // - new value must be a non-empty string
+      allow update: if resource.data.machine_id == ""
+                    && request.resource.data.machine_id is string
+                    && request.resource.data.machine_id.size() > 0
+                    && request.resource.data.diff(resource.data)
+                       .affectedKeys().hasOnly(["machine_id"]);
+
+      // No client-side creates or deletes.
+      // All license management goes through the Admin SDK
+      // (admin_license.py), which bypasses these rules.
+      allow create, delete: if false;
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,849 @@
+/* ── Reset & Base ──────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    color: #222;
+    background: #f5f5f5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ── Top Bar ─────────────────────────────────────────────────── */
+
+.top-bar {
+    padding: 10px 16px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+}
+
+.top-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.app-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0066cc;
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.top-label {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.top-bar-row input[type="text"] {
+    flex: 1;
+    min-width: 180px;
+    max-width: 420px;
+    padding: 6px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    background: #fafafa;
+}
+
+.toc-options {
+    display: flex;
+    gap: 14px;
+    white-space: nowrap;
+}
+
+.toc-options label {
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* ── Main Content: Sidebar + Editor Split ──────────────────── */
+
+.main-content {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+
+.sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    background: #fff;
+    border-right: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sidebar-title {
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #666;
+}
+
+.file-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    padding: 9px 14px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background 0.12s, border-color 0.12s;
+    gap: 8px;
+}
+
+.file-item:hover {
+    background: #f0f4f8;
+}
+
+.file-item.active {
+    background: #e6f0ff;
+    border-left-color: #0066cc;
+}
+
+.file-item.processing {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.file-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #222;
+}
+
+.file-item-size {
+    font-size: 11px;
+    color: #999;
+    margin-top: 2px;
+}
+
+.file-item-skip {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #bbb;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+    line-height: 1;
+}
+
+.file-item-skip:hover {
+    background: #fee;
+    color: #c33;
+}
+
+.file-item .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #ddd;
+    border-top-color: #0066cc;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.sidebar-footer {
+    padding: 10px 14px;
+    border-top: 1px solid #eee;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sidebar-footer .btn {
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    padding: 7px 12px;
+}
+
+.sidebar-empty {
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.sidebar-empty p {
+    font-size: 13px;
+    color: #999;
+    line-height: 1.5;
+}
+
+/* ── Editor Panel ────────────────────────────────────────────── */
+
+.editor-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #f5f5f5;
+}
+
+.editor-toolbar {
+    padding: 10px 16px 8px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+}
+
+.toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.toolbar-row:last-child { margin-bottom: 0; }
+
+.spacer { flex: 1; }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+
+.btn {
+    padding: 6px 16px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover { background: #f0f0f0; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+    background: #0066cc;
+    color: #fff;
+    border-color: #0055aa;
+}
+
+.btn-primary:hover { background: #0055aa; }
+.btn-primary:disabled { background: #99c2e8; border-color: #99c2e8; }
+
+.btn-danger {
+    background: #cc3333;
+    color: #fff;
+    border-color: #aa2222;
+}
+
+.btn-danger:hover { background: #aa2222; }
+.btn-danger:disabled { background: #d99; border-color: #d99; }
+
+/* ── Empty States ─────────────────────────────────────────────── */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.empty-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+
+.empty-state p {
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.empty-state.all-done .empty-icon {
+    opacity: 0.8;
+}
+
+/* ── Status Bar ──────────────────────────────────────────────── */
+
+.status-bar {
+    padding: 6px 16px;
+    background: #fff;
+    border-top: 1px solid #ddd;
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.status-bar progress {
+    width: 140px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.status-bar progress::-webkit-progress-bar { background: #e0e0e0; border-radius: 3px; }
+.status-bar progress::-webkit-progress-value { background: #0066cc; border-radius: 3px; }
+
+/* ── Editor Status ───────────────────────────────────────────── */
+
+.editor-status {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+}
+
+.count-label {
+    font-size: 13px;
+    color: #666;
+    white-space: nowrap;
+}
+
+/* ── Page Grid ───────────────────────────────────────────────── */
+
+.page-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+    padding: 16px;
+    overflow-y: auto;
+    align-content: start;
+}
+
+.page-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    padding: 6px;
+    cursor: pointer;
+    transition: border-color 0.12s, background-color 0.12s;
+    user-select: none;
+}
+
+.page-cell:hover {
+    border-color: #b0b0b0;
+    background: #fafafa;
+}
+
+.page-cell.selected {
+    border-color: #0066cc;
+    background: #e6f0ff;
+}
+
+.page-cell .thumb-wrapper {
+    width: 100%;
+    aspect-ratio: 8.5 / 11;
+    background: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.page-cell .thumb-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.page-cell .thumb-placeholder {
+    color: #bbb;
+    font-size: 24px;
+    font-weight: 300;
+}
+
+.page-cell .page-label {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #666;
+}
+
+.page-cell.selected .page-label {
+    color: #0055aa;
+    font-weight: 600;
+}
+
+/* ── Preview Modal ────────────────────────────────────────────── */
+
+.modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal[hidden] { display: none; }
+
+.modal-backdrop {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.modal-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 95vw;
+    max-height: 95vh;
+}
+
+.modal-content > img {
+    max-width: 90vw;
+    max-height: 88vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+.modal-close {
+    position: fixed;
+    top: 16px;
+    right: 20px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 32px;
+    cursor: pointer;
+    z-index: 1001;
+    line-height: 1;
+    opacity: 0.8;
+}
+
+.modal-close:hover { opacity: 1; }
+
+.modal-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: #fff;
+    font-size: 48px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border-radius: 6px;
+    line-height: 1;
+    opacity: 0.7;
+    z-index: 1001;
+}
+
+.modal-nav:hover { opacity: 1; background: rgba(255,255,255,0.25); }
+.modal-nav:disabled { opacity: 0.2; cursor: default; }
+
+.modal-prev { left: 16px; }
+.modal-next { right: 16px; }
+
+.modal-footer {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #ccc;
+    font-size: 14px;
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* ── Preview: Image container for region overlay ─────────────── */
+
+.preview-img-container {
+    position: relative;
+    display: inline-block;
+}
+
+.preview-img-container img {
+    max-width: 90vw;
+    max-height: 88vh;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+.preview-img-container.region-mode {
+    cursor: crosshair;
+}
+
+/* ── Region Selection Overlay ────────────────────────────────── */
+
+.region-overlay {
+    position: absolute;
+    border: 2px dashed #3399ff;
+    background: rgba(51, 153, 255, 0.15);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.region-overlay[hidden] { display: none; }
+
+/* ── Region Select Button ────────────────────────────────────── */
+
+.btn-region {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border-color: rgba(255,255,255,0.3);
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
+.btn-region:hover { background: rgba(255,255,255,0.25); }
+
+.btn-region.active {
+    background: #3399ff;
+    border-color: #3399ff;
+    color: #fff;
+}
+
+/* ── Redact Actions Bar ──────────────────────────────────────── */
+
+.redact-actions {
+    position: fixed;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(30, 30, 30, 0.95);
+    padding: 10px 16px;
+    border-radius: 8px;
+    z-index: 1002;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.redact-actions[hidden] { display: none; }
+
+.redact-label {
+    color: #ccc;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.redact-actions .btn {
+    font-size: 12px;
+    padding: 5px 12px;
+}
+
+/* ── Page Number Config Panel ────────────────────────────────── */
+
+.pagenumber-config {
+    position: fixed;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(30, 30, 30, 0.95);
+    padding: 10px 16px;
+    border-radius: 8px;
+    z-index: 1002;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.pagenumber-config[hidden] { display: none; }
+
+.pagenumber-config label {
+    color: #ccc;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.pagenumber-config input[type="number"] {
+    width: 50px;
+    padding: 3px 6px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    background: #2a2a2a;
+    color: #eee;
+    font-size: 12px;
+}
+
+.pagenumber-config select {
+    padding: 3px 6px;
+    border: 1px solid #555;
+    border-radius: 3px;
+    background: #2a2a2a;
+    color: #eee;
+    font-size: 12px;
+}
+
+.pagenumber-config .btn {
+    font-size: 12px;
+    padding: 5px 12px;
+}
+
+.config-label {
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.config-hint {
+    color: #999;
+    font-size: 11px;
+    font-style: italic;
+    white-space: nowrap;
+}
+
+/* ── Placement Marker ────────────────────────────────────────── */
+
+.placement-marker {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    margin-left: -8px;
+    margin-top: -8px;
+    pointer-events: none;
+    z-index: 11;
+}
+
+.placement-marker::before,
+.placement-marker::after {
+    content: '';
+    position: absolute;
+    background: #e33;
+}
+
+.placement-marker::before {
+    left: 7px;
+    top: 0;
+    width: 2px;
+    height: 16px;
+}
+
+.placement-marker::after {
+    left: 0;
+    top: 7px;
+    width: 16px;
+    height: 2px;
+}
+
+.placement-marker[hidden] { display: none; }
+
+/* ── DOCX Batch Modal ────────────────────────────────────────── */
+
+.docx-modal-content {
+    position: relative;
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90vw;
+    max-width: 720px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    z-index: 1001;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+}
+
+.docx-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.docx-modal-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #222;
+}
+
+.modal-close-small {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: #999;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.modal-close-small:hover {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.docx-modal-content .progress-container {
+    padding: 0;
+    margin-bottom: 4px;
+}
+
+.docx-modal-content .progress-container progress {
+    width: 100%;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.docx-modal-content .progress-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.docx-modal-content pre {
+    flex: 1;
+    min-height: 200px;
+    max-height: 400px;
+    padding: 12px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-y: auto;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.docx-modal-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+/* ── Progress Bar (reusable) ─────────────────────────────────── */
+
+.progress-container {
+    padding: 4px 0;
+    flex-shrink: 0;
+}
+
+.progress-container progress {
+    width: 100%;
+    height: 18px;
+    border-radius: 4px;
+}
+
+progress::-webkit-progress-bar { background: #e0e0e0; border-radius: 4px; }
+progress::-webkit-progress-value { background: #0066cc; border-radius: 4px; }
+
+.progress-label {
+    font-size: 13px;
+    color: #666;
+    white-space: nowrap;
+}
+
+/* ── License Modal ───────────────────────────────────────────── */
+
+.license-modal-content {
+    position: relative;
+    background: #fff;
+    border-radius: 12px;
+    padding: 40px 36px 32px;
+    width: 400px;
+    max-width: 90vw;
+    text-align: center;
+    z-index: 1001;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+}
+
+.license-modal-content h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #222;
+    margin: 0 0 6px;
+}
+
+.license-modal-content p {
+    font-size: 14px;
+    color: #555;
+    margin: 0 0 12px;
+}
+
+.license-modal-content input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    font-size: 17px;
+    text-align: center;
+    letter-spacing: 2px;
+    font-family: Consolas, "Courier New", monospace;
+    border: 2px solid #ccc;
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 0.2s;
+    text-transform: uppercase;
+    box-sizing: border-box;
+}
+
+.license-modal-content input[type="text"]:focus {
+    border-color: #0066cc;
+}
+
+.license-modal-content .btn {
+    margin-top: 16px;
+    width: 100%;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.license-error {
+    color: #d32f2f;
+    font-size: 13px;
+    margin: 8px 0 0;
+}
+
+.license-error[hidden] { display: none; }
+
+.hidden { display: none !important; }
