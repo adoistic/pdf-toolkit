@@ -6,12 +6,17 @@ service cloud.firestore {
     // License documents — keyed by SHA-256 hash of the license key
     match /licenses/{keyHash} {
 
-      // Read: anyone who knows the key hash can read the document.
-      // The hash acts as the secret — you can't enumerate documents
-      // without knowing the original license key.
+      // Admin (Adnan@thothica.com): full read/write/delete access
+      // Authenticated via Firebase Auth (Google Sign-in from admin portal)
+      allow read, write: if request.auth != null
+                         && request.auth.token.email.lower() == "adnan@thothica.com";
+
+      // App client (unauthenticated): can read any license doc.
+      // The SHA-256 hash acts as the secret — you can't enumerate
+      // documents without knowing the original license key.
       allow read: if true;
 
-      // Update: allow setting machine_id exactly once.
+      // App client (unauthenticated): one-time machine binding.
       // - machine_id must currently be empty ("")
       // - only the machine_id field may be changed
       // - new value must be a non-empty string
@@ -21,9 +26,7 @@ service cloud.firestore {
                     && request.resource.data.diff(resource.data)
                        .affectedKeys().hasOnly(["machine_id"]);
 
-      // No client-side creates or deletes.
-      // All license management goes through the Admin SDK
-      // (admin_license.py), which bypasses these rules.
+      // Non-admin: no creates or deletes
       allow create, delete: if false;
     }
 
