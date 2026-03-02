@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# ─────────────────────────────────────────────────────────────────────
+# Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+# All rights reserved.  Proprietary and confidential.
+# Unauthorized copying or distribution is strictly prohibited.
+# ─────────────────────────────────────────────────────────────────────
 """
 gui.py — Tkinter GUI for pdf-toolkit.
 Each PDF is processed in its own subprocess so a crash on one file

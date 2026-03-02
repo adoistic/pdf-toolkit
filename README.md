@@ -159,4 +159,10 @@ Successfully processed 12 diverse PDFs covering:
 
 ## License
 
-MIT
+Copyright (c) 2025-2026 **Thothica Private Limited**, Delhi, India. All rights reserved.
+
+This software is proprietary and confidential. Unauthorized copying, distribution,
+modification, or use of this software, in whole or in part, is strictly prohibited
+without prior written authorization from Thothica Private Limited.
+
+See [LICENSE](LICENSE) for full terms.

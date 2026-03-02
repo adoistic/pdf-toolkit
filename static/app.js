@@ -1,3 +1,8 @@
+// ─────────────────────────────────────────────────────────────────────
+// Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+// All rights reserved.  Proprietary and confidential.
+// Unauthorized copying or distribution is strictly prohibited.
+// ─────────────────────────────────────────────────────────────────────
 // ── PDF Toolkit — Frontend Logic ─────────────────────────────────
 
 (function () {

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# ─────────────────────────────────────────────────────────────────────
+# Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+# All rights reserved.  Proprietary and confidential.
+# Unauthorized copying or distribution is strictly prohibited.
+# ─────────────────────────────────────────────────────────────────────
 """
 add_toc.py — Automatically extract chapter headings from structured PDFs
 and insert a Table of Contents page at the beginning of each file.

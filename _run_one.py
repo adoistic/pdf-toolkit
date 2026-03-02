@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# ─────────────────────────────────────────────────────────────────────
+# Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+# All rights reserved.  Proprietary and confidential.
+# Unauthorized copying or distribution is strictly prohibited.
+# ─────────────────────────────────────────────────────────────────────
 """
 Helper: process a single PDF in an isolated process.
 Used by gui.py so that a crash on one file can't kill the whole app.

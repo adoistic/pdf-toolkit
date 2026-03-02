@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# ─────────────────────────────────────────────────────────────────────
+# Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+# All rights reserved.  Proprietary and confidential.
+# Unauthorized copying or distribution is strictly prohibited.
+# ─────────────────────────────────────────────────────────────────────
 """
 app.py - Flask web server for PDF Toolkit.
 
