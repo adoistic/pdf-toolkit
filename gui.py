@@ -11,13 +11,15 @@ Each PDF is processed in its own subprocess so a crash on one file
 """
 
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import threading
 import subprocess
 import sys
 import os
 import shutil
 from pathlib import Path
+
+import license as lic
 
 IS_FROZEN  = getattr(sys, "frozen", False)
 SCRIPT_DIR = Path(__file__).parent
@@ -31,6 +33,125 @@ else:
 TIMEOUT = 300  # seconds per file (5 min)
 
 
+# ─── License activation dialog ───────────────────────────────────────────────
+
+class LicenseDialog:
+    """Modal dialog for license key entry. Blocks the main window until
+    a valid license is activated."""
+
+    def __init__(self, root, message="Please enter your license key."):
+        self.activated = False
+
+        self.win = tk.Toplevel(root)
+        self.win.title("License Activation")
+        self.win.geometry("460x260")
+        self.win.resizable(False, False)
+        self.win.transient(root)
+        self.win.grab_set()
+
+        # Prevent closing without activation
+        self.win.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Center on screen
+        self.win.update_idletasks()
+        x = (self.win.winfo_screenwidth() - 460) // 2
+        y = (self.win.winfo_screenheight() - 260) // 2
+        self.win.geometry(f"+{x}+{y}")
+
+        self._build_ui(message)
+
+    def _build_ui(self, message):
+        frame = ttk.Frame(self.win, padding=24)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Title
+        title = ttk.Label(frame, text="PDF Toolkit — License",
+                          font=("Segoe UI", 14, "bold"))
+        title.pack(pady=(0, 12))
+
+        # Status message
+        self.msg_var = tk.StringVar(value=message)
+        self.msg_label = ttk.Label(frame, textvariable=self.msg_var,
+                                   wraplength=400, foreground="gray")
+        self.msg_label.pack(pady=(0, 12))
+
+        # Key entry
+        key_frame = ttk.Frame(frame)
+        key_frame.pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(key_frame, text="License Key:").pack(side=tk.LEFT)
+        self.key_var = tk.StringVar()
+        self.key_entry = ttk.Entry(key_frame, textvariable=self.key_var,
+                                   width=30, font=("Consolas", 11))
+        self.key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0))
+        self.key_entry.focus_set()
+        self.key_entry.bind("<Return>", lambda e: self._activate())
+
+        # Auto-format: uppercase + insert dashes (XXXX-XXXX-XXXX-XXXX)
+        self.key_var.trace_add("write", self._format_key)
+
+        # Activate button
+        self.activate_btn = ttk.Button(frame, text="Activate",
+                                       command=self._activate)
+        self.activate_btn.pack(pady=(4, 0))
+
+    def _format_key(self, *_):
+        raw = self.key_var.get().upper().replace("-", "").replace(" ", "")
+        # Only keep alphanumeric
+        raw = "".join(c for c in raw if c.isalnum())[:16]
+        # Insert dashes every 4 chars
+        parts = [raw[i:i+4] for i in range(0, len(raw), 4)]
+        formatted = "-".join(parts)
+        # Avoid infinite recursion from trace
+        if formatted != self.key_var.get():
+            self.key_var.set(formatted)
+            self.key_entry.icursor(len(formatted))
+
+    def _activate(self):
+        key = self.key_var.get().strip()
+        if not key:
+            self.msg_var.set("Please enter a license key.")
+            self.msg_label.configure(foreground="#CC3333")
+            return
+
+        self.activate_btn.configure(state="disabled")
+        self.msg_var.set("Validating...")
+        self.msg_label.configure(foreground="gray")
+        self.win.update()
+
+        # Run activation (may take a moment for network call)
+        success, message = lic.activate_key(key)
+
+        if success:
+            self.activated = True
+            self.msg_var.set(message)
+            self.msg_label.configure(foreground="#228B22")
+            self.win.after(600, self.win.destroy)
+        else:
+            self.msg_var.set(message)
+            self.msg_label.configure(foreground="#CC3333")
+            self.activate_btn.configure(state="normal")
+
+    def _on_close(self):
+        if not self.activated:
+            if messagebox.askokcancel(
+                "Exit",
+                "A valid license is required to use PDF Toolkit.\n\n"
+                "Exit the application?",
+                parent=self.win,
+            ):
+                self.win.destroy()
+                self.win.master.destroy()
+        else:
+            self.win.destroy()
+
+    def wait(self):
+        """Block until the dialog is closed."""
+        self.win.wait_window()
+        return self.activated
+
+
+# ─── Main GUI ────────────────────────────────────────────────────────────────
+
 class PDFToolkitGUI:
     def __init__(self, root):
         self.root = root
@@ -43,6 +164,28 @@ class PDFToolkitGUI:
         self.running = False
         self.cancelled = False
         self.proc = None
+
+        # ── License check on startup ──────────────────────────────────
+        valid, msg, needs_key = lic.check_license()
+
+        if not valid:
+            # Hide main window while license dialog is shown
+            self.root.withdraw()
+
+            if needs_key:
+                dialog = LicenseDialog(self.root, msg)
+                activated = dialog.wait()
+                if not activated:
+                    return  # User closed without activating → app exits
+            else:
+                # Offline lock (no key entry possible)
+                messagebox.showerror(
+                    "License Error", msg,
+                )
+                self.root.destroy()
+                return
+
+            self.root.deiconify()
 
         self._build_ui()
         self._update_count()
@@ -130,7 +273,6 @@ class PDFToolkitGUI:
         self.docx_btn.configure(state=st)
         self.dir_entry.configure(state=st)
         self.h1_check.configure(state=st)
-        self.toc_count_check.configure(state=st)
         self.stop_btn.configure(state="normal" if running else "disabled")
         if not running:
             self.progress["value"] = 0
