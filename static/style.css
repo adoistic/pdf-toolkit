@@ -34,6 +34,13 @@ body {
     gap: 8px;
 }
 
+.app-logo {
+    height: 28px;
+    width: auto;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
 .app-title {
     font-size: 16px;
     font-weight: 700;
@@ -299,6 +306,13 @@ body {
     opacity: 0.4;
 }
 
+.empty-logo {
+    height: 64px;
+    width: auto;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
 .empty-state p {
     font-size: 15px;
     line-height: 1.5;
@@ -350,7 +364,7 @@ body {
 .page-grid {
     flex: 1;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(var(--thumb-cols, 4), 1fr);
     gap: 12px;
     padding: 16px;
     overflow-y: auto;
@@ -790,73 +804,26 @@ progress::-webkit-progress-value { background: #0066cc; border-radius: 4px; }
     white-space: nowrap;
 }
 
-/* ── License Modal ───────────────────────────────────────────── */
+/* ── Thumbnail Columns Slider ────────────────────────────────── */
 
-.license-modal-content {
-    position: relative;
-    background: #fff;
-    border-radius: 12px;
-    padding: 40px 36px 32px;
-    width: 400px;
-    max-width: 90vw;
-    text-align: center;
-    z-index: 1001;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+.thumb-size-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #666;
+    white-space: nowrap;
 }
 
-.license-modal-content h2 {
-    font-size: 22px;
-    font-weight: 700;
-    color: #222;
-    margin: 0 0 6px;
+.thumb-size-label input[type="range"] {
+    width: 80px;
+    cursor: pointer;
 }
 
-.license-modal-content p {
-    font-size: 14px;
-    color: #555;
-    margin: 0 0 12px;
-}
-
-.license-modal-content input[type="text"] {
-    width: 100%;
-    padding: 12px;
-    font-size: 17px;
-    text-align: center;
-    letter-spacing: 2px;
-    font-family: Consolas, "Courier New", monospace;
-    border: 2px solid #ccc;
-    border-radius: 8px;
-    outline: none;
-    transition: border-color 0.2s;
-    text-transform: uppercase;
-    box-sizing: border-box;
-}
-
-.license-modal-content input[type="text"]:focus {
-    border-color: #0066cc;
-}
-
-.license-modal-content .btn {
-    margin-top: 16px;
-    width: 100%;
-    padding: 12px;
-    font-size: 15px;
+.thumb-size-label span {
     font-weight: 600;
+    min-width: 14px;
+    text-align: center;
 }
-
-.license-copyright {
-    font-size: 11px;
-    color: #999;
-    margin: 0 0 14px;
-    letter-spacing: 0.3px;
-}
-
-.license-error {
-    color: #d32f2f;
-    font-size: 13px;
-    margin: 8px 0 0;
-}
-
-.license-error[hidden] { display: none; }
 
 .hidden { display: none !important; }

@@ -19,9 +19,16 @@ import os
 import shutil
 from pathlib import Path
 
+IS_FROZEN  = getattr(sys, "frozen", False)
 SCRIPT_DIR = Path(__file__).parent
-HELPER     = str(SCRIPT_DIR / "_run_one.py")
-TIMEOUT    = 300  # seconds per file (5 min)
+
+if IS_FROZEN:
+    BUNDLE_DIR = Path(sys._MEIPASS)
+    HELPER = str(SCRIPT_DIR / "_run_one.exe")
+else:
+    HELPER = str(SCRIPT_DIR / "_run_one.py")
+
+TIMEOUT = 300  # seconds per file (5 min)
 
 
 class PDFToolkitGUI:
@@ -33,7 +40,6 @@ class PDFToolkitGUI:
 
         self.input_dir = tk.StringVar(value=str(SCRIPT_DIR))
         self.h1_only = tk.BooleanVar(value=False)
-        self.count_toc = tk.BooleanVar(value=True)
         self.running = False
         self.cancelled = False
         self.proc = None
@@ -75,11 +81,6 @@ class PDFToolkitGUI:
             variable=self.h1_only,
         )
         self.h1_check.pack(side=tk.LEFT)
-        self.toc_count_check = ttk.Checkbutton(
-            opts, text="Include TOC in page count",
-            variable=self.count_toc,
-        )
-        self.toc_count_check.pack(side=tk.LEFT, padx=(16, 0))
 
         # Progress bar
         prog = ttk.Frame(self.root, padding=(14, 2, 14, 4))
@@ -213,11 +214,12 @@ class PDFToolkitGUI:
                 dst = str(out_dir / (pdf.stem + ".docx"))
 
             # ── Spawn isolated subprocess for this single PDF ────────
-            cmd = [sys.executable, "-u", HELPER, mode, str(pdf), dst]
+            if IS_FROZEN:
+                cmd = [HELPER, mode, str(pdf), dst]
+            else:
+                cmd = [sys.executable, "-u", HELPER, mode, str(pdf), dst]
             if mode == "toc" and self.h1_only.get():
                 cmd.append("--h1-only")
-            if mode == "toc" and not self.count_toc.get():
-                cmd.append("--no-count-toc")
             try:
                 self.proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

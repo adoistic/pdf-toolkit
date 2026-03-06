@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2025-2026 Thothica Private Limited, Delhi, India.
+  All rights reserved. Proprietary and confidential.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="author" content="eBookinfotech">
+    <title>eBookinfotech — Activate License</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 48px 40px 36px;
+            width: 420px;
+            max-width: 90vw;
+            text-align: center;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+        }
+        .card h1 {
+            font-size: 26px;
+            font-weight: 700;
+            color: #222;
+            margin-bottom: 4px;
+        }
+        .copyright {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 20px;
+            letter-spacing: 0.3px;
+        }
+        .card p {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 20px;
+        }
+        .key-input {
+            width: 100%;
+            padding: 14px 12px;
+            font-size: 18px;
+            text-align: center;
+            letter-spacing: 3px;
+            font-family: Consolas, "Courier New", monospace;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            outline: none;
+            transition: border-color 0.2s;
+            text-transform: uppercase;
+        }
+        .key-input:focus { border-color: #0066cc; }
+        .btn {
+            display: block;
+            width: 100%;
+            margin-top: 18px;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #fff;
+            background: #0066cc;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #0055aa; }
+        .btn:disabled { background: #99c2e8; cursor: default; }
+        .error {
+            color: #d32f2f;
+            font-size: 13px;
+            margin-top: 10px;
+            min-height: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <img src="/static/logo.png" alt="eBookinfotech" style="height: 48px; margin-bottom: 16px;">
+        <h1>PDF Toolkit</h1>
+        <p class="copyright">&copy; 2025-2026 eBookinfotech</p>
+        <p id="msg">Enter your license key to get started.</p>
+        <input type="text" class="key-input" id="key"
+               placeholder="PDFT-XXXX-XXXX-XXXX"
+               spellcheck="false" autocomplete="off" maxlength="19">
+        <button class="btn" id="activate">Activate</button>
+        <p class="error" id="error">&nbsp;</p>
+    </div>
+    <script>
+    (function () {
+        var keyInput = document.getElementById("key");
+        var btn = document.getElementById("activate");
+        var err = document.getElementById("error");
+
+        // Auto-format: insert dashes as user types
+        keyInput.addEventListener("input", function () {
+            var raw = keyInput.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            var parts = [];
+            for (var i = 0; i < raw.length && i < 16; i += 4) {
+                parts.push(raw.substring(i, i + 4));
+            }
+            keyInput.value = parts.join("-");
+        });
+
+        keyInput.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") activate();
+        });
+
+        btn.addEventListener("click", activate);
+
+        function activate() {
+            var key = keyInput.value.trim();
+            if (!key) { err.textContent = "Please enter a license key."; return; }
+
+            btn.disabled = true;
+            btn.textContent = "Activating\u2026";
+            err.innerHTML = "&nbsp;";
+
+            fetch("/api/license/activate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key: key })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    // License activated — reload to get the real app
+                    window.location.reload();
+                } else {
+                    err.textContent = data.message || "Activation failed.";
+                }
+            })
+            .catch(function () {
+                err.textContent = "Cannot reach the license server.";
+            })
+            .finally(function () {
+                btn.disabled = false;
+                btn.textContent = "Activate";
+            });
+        }
+    })();
+    </script>
+</body>
+</html>

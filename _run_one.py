@@ -23,7 +23,7 @@ mode     = sys.argv[1]                   # "toc" or "docx"
 src      = sys.argv[2]                   # input PDF path
 dst      = sys.argv[3]                   # output file path
 h1_only        = "--h1-only" in sys.argv        # optional flag
-count_toc_pages = "--no-count-toc" not in sys.argv  # default: count them
+count_toc_pages = False  # TOC page numbers always match original PDF
 
 if mode == "toc":
     from add_toc import process_pdf

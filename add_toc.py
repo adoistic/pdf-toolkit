@@ -50,7 +50,7 @@ DEDUP_PAGE_RANGE = 4                # pages within which same text = duplicate
 RUNNING_HEADER_RATIO = 0.25         # text on >25% of pages = running header
 
 # ─── Bold font-name patterns (case-insensitive substring match) ─────────────
-BOLD_FONT_PATTERNS = ["bold", "cmbx", "advtib"]
+BOLD_FONT_PATTERNS = ["bold", "cmbx", "advtib", "demi", "heavy", "black"]
 
 
 # ─── Data structures ────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ def cluster_font_sizes(sizes, threshold=FONT_SIZE_CLUSTER_THRESHOLD):
     return mapping
 
 
-def is_noise_text(text, y_pos, page_height):
+def is_noise_text(text, y_pos, page_height, font_size=0, body_size=0):
     """
     Filter out page numbers, headers/footers, and non-textual debris.
     This is a CONSERVATIVE filter — only removes clearly non-heading text.
@@ -116,6 +116,12 @@ def is_noise_text(text, y_pos, page_height):
     # Pure numeric in header / footer zone
     stripped = t.replace(".", "").replace("-", "").replace(" ", "")
     if stripped.isdigit():
+        # Decorative chapter numbers (e.g. "10" at 36pt when body is 10pt)
+        # are deliberate typographic choices — not noise
+        if (font_size > 0 and body_size > 0
+                and font_size > body_size * 2
+                and len(stripped) <= 3):
+            return False
         if y_pos < PAGE_NUM_MARGIN or y_pos > page_height - PAGE_NUM_MARGIN:
             return True
         # Also filter standalone large page numbers in content area
@@ -213,6 +219,34 @@ def is_scanned_pdf(doc, sample_size=10):
     return ratio < 0.2
 
 
+def is_garbled_pdf(doc, sample_size=10):
+    """Detect if extracted text is mostly garbled / unreadable.
+    Samples pages and checks whether >50% of non-whitespace characters
+    are standard readable characters (letters, digits, common punctuation).
+    Normal PDFs score >95%; garbled ones (broken font encoding) score <30%.
+    """
+    num_pages = len(doc)
+    if num_pages == 0:
+        return False
+    n = min(sample_size, num_pages)
+    if num_pages <= n:
+        indices = list(range(num_pages))
+    else:
+        indices = [int(i * num_pages / n) for i in range(n)]
+    total_chars, readable_chars = 0, 0
+    for idx in indices:
+        text = doc[idx].get_text("text")
+        for ch in text:
+            if ch.isspace():
+                continue
+            total_chars += 1
+            if ch.isalnum() or ch in '.,;:!?\'"()-/&@#$%+=[]{}<>~_^*':
+                readable_chars += 1
+    if total_chars < 50:
+        return False          # too little text to judge
+    return readable_chars / total_chars < 0.5
+
+
 # ─── Core heading extraction (font-metric based) ────────────────────────────
 
 def extract_headings_by_font(doc):
@@ -260,6 +294,11 @@ def extract_headings_by_font(doc):
     else:
         body_size = Counter(sizes).most_common(1)[0][0]
 
+    # Sanity: real body text is always >= 5pt. Sizes below this indicate
+    # broken font metrics (e.g. Type-3 fonts reporting 0.1pt).
+    if body_size < 5.0:
+        return []           # fall through to outline/keyword fallback
+
     # ── Cluster font sizes ───────────────────────────────────────────────
     cluster_map = cluster_font_sizes(list(unique))
 
@@ -282,26 +321,92 @@ def extract_headings_by_font(doc):
         canonical = cluster_map.get(sz, sz)
         if canonical not in heading_sizes_set:
             continue
-        # Must be bold, OR very large compared to body (for PDFs where
-        # chapter titles use a non-bold display font like LegacySans-Medium)
-        if not bold and canonical <= body_size * 2:
+        # Must be bold, OR significantly larger than body (for PDFs where
+        # chapter titles use a non-bold display font).
+        # 1.5x threshold derived from cross-PDF analysis: real non-bold
+        # headings are 1.5x–3.6x body; the 1.1x–1.4x range is captions.
+        if not bold and canonical <= body_size * 1.5:
             continue
         # Apply noise filters
         ph = doc[pidx].rect.height
-        if is_noise_text(txt, y, ph):
+        if is_noise_text(txt, y, ph, font_size=sz, body_size=body_size):
             continue
-        # Check running headers
+        # Check running headers — but exempt chapter/part patterns at
+        # heading-level font sizes (e.g. "CHAPTER 1" at 36pt on every
+        # chapter page normalizes to "CHAPTER #" appearing on 30%+ pages)
         norm = re.sub(r"\d+", "#", txt).strip()
         if norm in running_headers:
-            continue
+            if not (CHAPTER_RE.match(txt.strip()) and sz > body_size * 1.5):
+                continue
         # Check it looks like real heading text
+        # (large-font bare numbers are chapter markers — bypass this check)
         if not looks_like_heading_text(txt):
-            continue
+            stripped_digits = txt.strip().replace(".", "").replace("-", "").replace(" ", "")
+            if not (stripped_digits.isdigit() and len(stripped_digits) <= 3
+                    and sz > body_size * 2):
+                continue
 
         candidates.append(HeadingCandidate(
             text=txt, page_num=pidx, font_size=canonical,
             is_bold=bold, y_position=y, block_bbox=bbx,
         ))
+
+    # ── Page-spread filter for non-bold tiers ────────────────────────────
+    # Non-bold size tiers appearing on >25% of pages are secondary text
+    # styles (captions, labels), not headings.
+    if candidates:
+        non_bold_size_pages = defaultdict(set)
+        for c in candidates:
+            if not c.is_bold:
+                non_bold_size_pages[c.font_size].add(c.page_num)
+        max_spread = len(doc) * 0.25
+        noisy_sizes = {sz for sz, pages in non_bold_size_pages.items()
+                       if len(pages) > max_spread
+                       # Very large fonts (>2x body) are unambiguously headings
+                       # even at high page spread (e.g. fiction with 100+ chapters)
+                       and sz <= body_size * 2}
+        if noisy_sizes:
+            candidates = [c for c in candidates
+                          if c.is_bold or c.font_size not in noisy_sizes]
+
+    # ── Enrich bare chapter numbers with title text from the same page ──
+    # When a heading is just a bare number (e.g. "10" at 36pt), look for
+    # the actual chapter title on the same page — typically the next-largest
+    # font text that looks like a real heading.
+    for i, c in enumerate(candidates):
+        stripped = c.text.strip().replace(".", "").replace("-", "").replace(" ", "")
+        if not (stripped.isdigit() and len(stripped) <= 3
+                and c.font_size > body_size * 2):
+            continue
+        # Find title-sized text on the same page (not body, not the number itself)
+        # Collect ALL spans — titles may be split into individual word spans
+        page_spans = [(sz, txt, y) for pidx2, sz, bold2, txt, y, bbx, fn
+                      in all_spans
+                      if pidx2 == c.page_num
+                      and cluster_map.get(sz, sz) > body_size + 0.5
+                      and cluster_map.get(sz, sz) != c.font_size]
+        if page_spans:
+            # Group by font size, pick the largest tier, join all words
+            best_sz = max(s[0] for s in page_spans)
+            title_spans = sorted([(txt, y) for sz2, txt, y in page_spans
+                                  if abs(sz2 - best_sz) < 1.0],
+                                 key=lambda x: x[1])
+            title_text = " ".join(t.strip() for t, _ in title_spans if t.strip())
+            if not looks_like_heading_text(title_text):
+                title_text = ""
+            # Combine: "10. Title" (only if we found a real title)
+            num_text = c.text.strip()
+            if not title_text:
+                continue
+            candidates[i] = HeadingCandidate(
+                text=f"{num_text}. {title_text}",
+                page_num=c.page_num,
+                font_size=c.font_size,
+                is_bold=c.is_bold,
+                y_position=c.y_position,
+                level=c.level,
+                block_bbox=c.block_bbox,
+            )
 
     # ── Assign heading levels (1 = largest) ──────────────────────────────
     used_sizes = sorted({c.font_size for c in candidates}, reverse=True)
@@ -388,8 +493,35 @@ def extract_headings_from_outline(doc):
         if level > 2:
             continue
         title = title.strip()
-        if not title:
+        if not title or len(title) < 3:
             continue
+        # Strip trailing "OUTLINE" that some PDFs append to chapter titles
+        title = re.sub(r'\s+OUTLINE\s*$', '', title)
+        # ── Clean outline entries that contain body text ──
+        # Strategy: apply multiple general-purpose heuristics in order.
+        #
+        # 1. Detect embedded page number near the entry's own page,
+        #    e.g. "Lipids 238 A feast of fat things" → "Lipids"
+        m_pn = re.search(r'(?<=\s)(\d{1,4})\s+[A-Z]', title)
+        if m_pn:
+            num = int(m_pn.group(1))
+            if abs(num - page_1based) <= 2 and m_pn.start() > 10:
+                title = title[:m_pn.start()].strip()
+        # 2. Truncate at sentence boundary (period + uppercase = body text)
+        #    Real chapter titles almost never contain mid-sentence periods.
+        if len(title) > 40:
+            m_sent = re.search(r'(?<=[a-z])\.\s+[A-Z]', title)
+            if m_sent and m_sent.start() > 15:
+                title = title[:m_sent.start() + 1].strip()
+        # 3. Hard cap at 80 chars for remaining long entries
+        if len(title) > 80:
+            for sep in ["\u2014", " - ", ": \u2018", ": '", ": \""]:
+                pos = title.find(sep)
+                if 5 < pos < 80:
+                    title = title[:pos].strip()
+                    break
+            else:
+                title = title[:80].rsplit(" ", 1)[0].strip()
         page_0 = max(0, page_1based - 1)      # convert to 0-based
         if page_0 >= len(doc):
             page_0 = len(doc) - 1
@@ -658,11 +790,16 @@ def _guard_over_extraction(headings):
     """
     h1s = [h for h in headings if h.level == 1]
 
-    if len(h1s) <= 50:
+    if len(h1s) <= 80:
         return headings  # reasonable count, no action needed
 
-    # Strategy 1: filter to "Chapter"-prefixed entries as H1
+    # If 70%+ of H1s follow "Chapter N" pattern, they're legitimate
+    # (fiction books can have 100+ short chapters)
     chapter_h1s = [h for h in h1s if CHAPTER_RE.match(h.text.strip())]
+    if len(chapter_h1s) >= len(h1s) * 0.7:
+        return headings
+
+    # Strategy 1: filter to "Chapter"-prefixed entries as H1
     if len(chapter_h1s) >= 4:
         # Keep chapter entries as H1, demote everything else
         chapter_pages = {h.page_num for h in chapter_h1s}
@@ -870,7 +1007,7 @@ def wrap_toc_entry(text, font, fontsize, full_width, last_line_width):
 
 # ─── TOC page creation ──────────────────────────────────────────────────────
 
-def create_toc_pages(headings, page_width, page_height, count_toc_pages=True):
+def create_toc_pages(headings, page_width, page_height, count_toc_pages=False):
     """
     Build a fitz.Document containing the TOC page(s).
     Long entries wrap up to TOC_MAX_LINES lines; entries that still
@@ -990,7 +1127,7 @@ def create_toc_pages(headings, page_width, page_height, count_toc_pages=True):
 
 # ─── Main orchestrator for one PDF ──────────────────────────────────────────
 
-def process_pdf(src_path, output_path, h1_only=False, count_toc_pages=True):
+def process_pdf(src_path, output_path, h1_only=False, count_toc_pages=False):
     """Extract headings → build TOC → insert at start → save.
     Returns 'success', 'scanned', or 'skipped'.
     """
@@ -1005,8 +1142,33 @@ def process_pdf(src_path, output_path, h1_only=False, count_toc_pages=True):
         doc.close()
         return "scanned"
 
+    # Check for garbled/unreadable text (broken font encoding)
+    if is_garbled_pdf(doc):
+        print("  ⚠  Text extraction produces garbled output (broken font encoding) — skipping")
+        doc.close()
+        return "skipped"
+
     # ── 1. Extract headings ──────────────────────────────────────────────
     headings = extract_headings_by_font(doc)
+
+    # Supplement sparse font results with PDF outline/bookmarks
+    if headings:
+        h1_count = sum(1 for h in headings if h.level == 1)
+        if h1_count < 5:
+            outline = extract_headings_from_outline(doc)
+            if outline:
+                outline_h1 = sum(1 for h in outline if h.level == 1)
+                if outline_h1 > h1_count:
+                    covered = {h.page_num for h in headings}
+                    added = 0
+                    for oh in outline:
+                        if oh.page_num not in covered:
+                            headings.append(oh)
+                            covered.add(oh.page_num)
+                            added += 1
+                    if added:
+                        print(f"  + Supplemented with {added} entries from PDF outline")
+
     if not headings:
         print("  ⚠  Font metrics unusable — falling back to PDF outline/bookmarks")
         headings = extract_headings_from_outline(doc)

@@ -36,13 +36,27 @@ from flask import (
 
 import license as lic
 
-app = Flask(__name__)
+IS_FROZEN = getattr(sys, "frozen", False)
+
+if IS_FROZEN:
+    BUNDLE_DIR = Path(sys.executable).parent
+    # PyInstaller puts data files in _internal/ (sys._MEIPASS)
+    _MEIPASS = Path(getattr(sys, "_MEIPASS", BUNDLE_DIR / "_internal"))
+    app = Flask(
+        __name__,
+        template_folder=str(_MEIPASS / "templates"),
+        static_folder=str(_MEIPASS / "static"),
+    )
+    HELPER = str(BUNDLE_DIR / "_run_one.exe")
+    SCRIPT_DIR = BUNDLE_DIR
+else:
+    app = Flask(__name__)
+    SCRIPT_DIR = Path(__file__).parent
+    HELPER = str(SCRIPT_DIR / "_run_one.py")
+
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.config["LICENSE_VALID"] = False
-
-SCRIPT_DIR = Path(__file__).parent
-HELPER = str(SCRIPT_DIR / "_run_one.py")
 TIMEOUT = 300  # seconds per file
 
 
@@ -179,10 +193,10 @@ def human_size(nbytes):
     return f"{nbytes:.1f} TB"
 
 
-def _run_toc_bg(file_path, toc_out_dir, h1_only, count_toc):
+def _run_toc_bg(file_path, toc_out_dir, h1_only):
     """Background wrapper for _run_toc — logs result to console."""
     try:
-        result, log = _run_toc(file_path, toc_out_dir, h1_only, count_toc)
+        result, log = _run_toc(file_path, toc_out_dir, h1_only)
         name = os.path.basename(file_path)
         if result == "success":
             print(f"  TOC added: {name}")
@@ -194,17 +208,18 @@ def _run_toc_bg(file_path, toc_out_dir, h1_only, count_toc):
         print(f"  TOC error for {os.path.basename(file_path)}: {e}")
 
 
-def _run_toc(file_path, toc_out_dir, h1_only, count_toc):
+def _run_toc(file_path, toc_out_dir, h1_only):
     """Run the TOC subprocess. Returns (toc_result, toc_log)."""
     os.makedirs(toc_out_dir, exist_ok=True)
     base = os.path.basename(file_path)
     toc_dst = os.path.join(toc_out_dir, base)
 
-    cmd = [sys.executable, "-u", HELPER, "toc", file_path, toc_dst]
+    if IS_FROZEN:
+        cmd = [HELPER, "toc", file_path, toc_dst]
+    else:
+        cmd = [sys.executable, "-u", HELPER, "toc", file_path, toc_dst]
     if h1_only:
         cmd.append("--h1-only")
-    if not count_toc:
-        cmd.append("--no-count-toc")
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -230,17 +245,25 @@ def _run_toc(file_path, toc_out_dir, h1_only, count_toc):
 
 # ── License Gate ─────────────────────────────────────────────────────
 
-LICENSE_EXEMPT = ("/", "/static/", "/api/license/")
+LICENSE_EXEMPT_PREFIXES = ("/api/license/",)
 
 
 @app.before_request
 def license_gate():
-    """Block all API routes if the app is not licensed."""
+    """Block all API routes if the app is not licensed.
+
+    Re-validates the license on every gated request.  The actual
+    network call only happens every RECHECK_INTERVAL (5 min) inside
+    check_license(); the rest of the time it reads from cache.
+    """
     path = request.path
-    if any(path.startswith(p) for p in LICENSE_EXEMPT):
+    if path == "/" or path == "/static/logo.png" or any(path.startswith(p) for p in LICENSE_EXEMPT_PREFIXES):
         return None
-    if not app.config.get("LICENSE_VALID"):
-        return jsonify(error="unlicensed"), 403
+    # Re-check license (phones home every 5 min, cache otherwise)
+    valid, msg, _ = lic.check_license()
+    app.config["LICENSE_VALID"] = valid
+    if not valid:
+        return jsonify(error="unlicensed", message=msg), 403
 
 
 @app.route("/api/license/status")
@@ -269,10 +292,45 @@ def license_activate():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    valid, _, _ = lic.check_license()
+    app.config["LICENSE_VALID"] = valid
+    if valid:
+        return render_template("index.html")
+    return render_template("license.html")
 
 
 # ── Routes: Browse ──────────────────────────────────────────────────
+
+def _browse_tkinter_thread(mode, initial):
+    """Run a tkinter file dialog in a dedicated thread.
+
+    Works in both frozen (PyInstaller) and development modes.
+    Tkinter must run in its own thread with its own mainloop.
+    """
+    result = [None]
+
+    def _run():
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        if mode == "folder":
+            p = filedialog.askdirectory(
+                title="Select PDF Folder", initialdir=initial)
+        else:
+            p = filedialog.askopenfilename(
+                title="Open PDF",
+                filetypes=[("PDF files", "*.pdf")],
+                initialdir=initial)
+        result[0] = p or ""
+        root.destroy()
+
+    t = threading.Thread(target=_run)
+    t.start()
+    t.join(timeout=120)
+    return result[0] or ""
+
 
 @app.route("/api/browse", methods=["POST"])
 def browse():
@@ -280,32 +338,35 @@ def browse():
     mode = data.get("mode", "folder")
     initial = data.get("initial", str(SCRIPT_DIR))
 
-    # Run tkinter file dialog in a subprocess to avoid
-    # "main thread is not in main loop" crashes.
-    script = (
-        "import tkinter as tk; from tkinter import filedialog; "
-        "root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True); "
-    )
-    if mode == "folder":
-        script += (
-            f"p = filedialog.askdirectory(title='Select PDF Folder', "
-            f"initialdir=r'{initial}'); "
-        )
+    if IS_FROZEN:
+        # Frozen: run tkinter in a thread (bundled by PyInstaller)
+        path = _browse_tkinter_thread(mode, initial)
     else:
-        script += (
-            f"p = filedialog.askopenfilename(title='Open PDF', "
-            f"filetypes=[('PDF files', '*.pdf')], initialdir=r'{initial}'); "
+        # Development: run tkinter file dialog in a subprocess to avoid
+        # "main thread is not in main loop" crashes.
+        script = (
+            "import tkinter as tk; from tkinter import filedialog; "
+            "root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True); "
         )
-    script += "print(p or ''); root.destroy()"
-
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=120,
-        )
-        path = result.stdout.strip()
-    except Exception:
-        path = ""
+        if mode == "folder":
+            script += (
+                f"p = filedialog.askdirectory(title='Select PDF Folder', "
+                f"initialdir=r'{initial}'); "
+            )
+        else:
+            script += (
+                f"p = filedialog.askopenfilename(title='Open PDF', "
+                f"filetypes=[('PDF files', '*.pdf')], initialdir=r'{initial}'); "
+            )
+        script += "print(p or ''); root.destroy()"
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True, text=True, timeout=120,
+            )
+            path = result.stdout.strip()
+        except Exception:
+            path = ""
 
     return jsonify(path=path or "")
 
@@ -377,7 +438,6 @@ def folder_skip():
     data = request.json or {}
     name = data.get("name", "")
     h1_only = data.get("h1_only", False)
-    count_toc = data.get("count_toc", True)
 
     if not name:
         return jsonify(error="No filename specified"), 400
@@ -398,7 +458,7 @@ def folder_skip():
     toc_out_dir = os.path.join(folder.folder_path, "with_toc")
     threading.Thread(
         target=_run_toc_bg,
-        args=(file_info["path"], toc_out_dir, h1_only, count_toc),
+        args=(file_info["path"], toc_out_dir, h1_only),
         daemon=True,
     ).start()
 
@@ -413,7 +473,6 @@ def folder_skip():
 def folder_save_and_finish():
     data = request.json or {}
     h1_only = data.get("h1_only", False)
-    count_toc = data.get("count_toc", True)
 
     with editor.lock:
         if not editor.doc:
@@ -449,7 +508,7 @@ def folder_save_and_finish():
     toc_out_dir = os.path.join(base_dir, "with_toc")
     threading.Thread(
         target=_run_toc_bg,
-        args=(save_path, toc_out_dir, h1_only, count_toc),
+        args=(save_path, toc_out_dir, h1_only),
         daemon=True,
     ).start()
 
@@ -470,7 +529,6 @@ def folder_skip_all():
 
     data = request.json or {}
     h1_only = data.get("h1_only", False)
-    count_toc = data.get("count_toc", True)
 
     remaining = folder.remaining()
     if not remaining:
@@ -486,7 +544,7 @@ def folder_skip_all():
 
     t = threading.Thread(
         target=_skip_all_worker,
-        args=(remaining, h1_only, count_toc),
+        args=(remaining, h1_only),
         daemon=True,
     )
     t.start()
@@ -494,7 +552,7 @@ def folder_skip_all():
     return jsonify(total=len(remaining))
 
 
-def _skip_all_worker(files, h1_only, count_toc):
+def _skip_all_worker(files, h1_only):
     total = len(files)
     toc_out_dir = os.path.join(folder.folder_path, "with_toc")
     os.makedirs(toc_out_dir, exist_ok=True)
@@ -517,11 +575,12 @@ def _skip_all_worker(files, h1_only, count_toc):
         ))
 
         dst = os.path.join(toc_out_dir, f["name"])
-        cmd = [sys.executable, "-u", HELPER, "toc", f["path"], dst]
+        if IS_FROZEN:
+            cmd = [HELPER, "toc", f["path"], dst]
+        else:
+            cmd = [sys.executable, "-u", HELPER, "toc", f["path"], dst]
         if h1_only:
             cmd.append("--h1-only")
-        if not count_toc:
-            cmd.append("--no-count-toc")
 
         try:
             batch.proc = subprocess.Popen(
@@ -589,7 +648,6 @@ def batch_start():
     input_dir = Path(data.get("dir", folder.folder_path or ""))
     mode = data.get("mode", "docx")
     h1_only = data.get("h1_only", False)
-    count_toc = data.get("count_toc", True)
 
     if not input_dir.is_dir():
         return jsonify(error="Not a valid directory"), 400
@@ -607,7 +665,7 @@ def batch_start():
 
     t = threading.Thread(
         target=_batch_worker,
-        args=(mode, input_dir, out_dir, pdfs, h1_only, count_toc),
+        args=(mode, input_dir, out_dir, pdfs, h1_only),
         daemon=True,
     )
     t.start()
@@ -615,7 +673,7 @@ def batch_start():
     return jsonify(total=len(pdfs))
 
 
-def _batch_worker(mode, input_dir, out_dir, pdfs, h1_only, count_toc):
+def _batch_worker(mode, input_dir, out_dir, pdfs, h1_only):
     total = len(pdfs)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
@@ -640,11 +698,12 @@ def _batch_worker(mode, input_dir, out_dir, pdfs, h1_only, count_toc):
         else:
             dst = str(out_dir / (pdf.stem + ".docx"))
 
-        cmd = [sys.executable, "-u", HELPER, mode, str(pdf), dst]
+        if IS_FROZEN:
+            cmd = [HELPER, mode, str(pdf), dst]
+        else:
+            cmd = [sys.executable, "-u", HELPER, mode, str(pdf), dst]
         if mode == "toc" and h1_only:
             cmd.append("--h1-only")
-        if mode == "toc" and not count_toc:
-            cmd.append("--no-count-toc")
 
         try:
             batch.proc = subprocess.Popen(
@@ -1179,7 +1238,7 @@ def cleanup():
 def main():
     port = 5000
     url = f"http://127.0.0.1:{port}"
-    print(f"Starting PDF Toolkit at {url}")
+    print(f"Starting eBookinfotech PDF Toolkit at {url}")
 
     # Warm up PyMuPDF's internal freetype/font caches so first PDF opens fast
     _warmup = fitz.open()

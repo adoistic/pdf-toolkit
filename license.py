@@ -15,6 +15,7 @@ No firebase-admin dependency — uses the Firestore REST API with an API key.
 """
 
 import os
+import sys
 import json
 import time
 import base64
@@ -32,9 +33,17 @@ from cryptography.fernet import Fernet, InvalidToken
 # API key is safe to embed — it only identifies the project.
 # Security is enforced by Firestore rules, not the key.
 
+# Hardcoded for frozen builds — filled automatically by build.py
+_EMBEDDED_PROJECT_ID = ""
+_EMBEDDED_API_KEY    = ""
+
+
 def _load_dotenv():
     """Load .env file from the script directory into os.environ."""
-    env_path = Path(__file__).parent / ".env"
+    if getattr(sys, "frozen", False):
+        env_path = Path(sys.executable).parent / ".env"
+    else:
+        env_path = Path(__file__).parent / ".env"
     if not env_path.exists():
         return
     for line in env_path.read_text().splitlines():
@@ -44,10 +53,16 @@ def _load_dotenv():
         key, _, value = line.partition("=")
         os.environ.setdefault(key.strip(), value.strip())
 
-_load_dotenv()
 
-FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
-FIREBASE_API_KEY    = os.getenv("FIREBASE_API_KEY", "")
+if _EMBEDDED_PROJECT_ID and _EMBEDDED_API_KEY:
+    # Frozen build: use baked-in credentials
+    FIREBASE_PROJECT_ID = _EMBEDDED_PROJECT_ID
+    FIREBASE_API_KEY    = _EMBEDDED_API_KEY
+else:
+    # Development: read from .env file
+    _load_dotenv()
+    FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
+    FIREBASE_API_KEY    = os.getenv("FIREBASE_API_KEY", "")
 
 FIRESTORE_BASE = (
     f"https://firestore.googleapis.com/v1/"
@@ -59,8 +74,8 @@ FIRESTORE_BASE = (
 APPDATA_DIR = Path(os.getenv("APPDATA", "")) / "PDFToolkit"
 CACHE_FILE  = APPDATA_DIR / "license.dat"
 
-CACHE_TTL        = 72 * 3600   # Phone-home interval: 72 hours
-GRACE_MULTIPLIER = 2           # Allow offline up to 2× TTL before hard lock
+RECHECK_INTERVAL = 5 * 60      # Phone home every 5 minutes during active use
+OFFLINE_MAX      = 72 * 3600   # Hard lock after 72 hours (3 days) offline
 
 REQUEST_TIMEOUT = 10           # Seconds for HTTP requests
 
@@ -257,7 +272,12 @@ def _bind_machine(key_hash: str, machine_id: str) -> None:
 # ── Public API ───────────────────────────────────────────────────────
 
 def check_license() -> tuple[bool, str, bool]:
-    """Main license check — call on app startup.
+    """Check license validity — called on every gated request.
+
+    Phones home every RECHECK_INTERVAL (5 min).  If the server is
+    unreachable, the cached validation stands for up to OFFLINE_MAX
+    (72 h / 3 days).  After that the app locks until connectivity
+    is restored.
 
     Returns:
         (valid, message, needs_key)
@@ -279,38 +299,38 @@ def check_license() -> tuple[bool, str, bool]:
         clear_cache()
         return False, "Your license has expired.", True
 
-    # ── Cache is fresh (within TTL) → allow ──────────────────────
     last_validated = cache.get("last_validated", 0)
     age = time.time() - last_validated
 
-    if age <= CACHE_TTL:
-        return True, "License valid.", False
+    # ── Time to phone home? (every 5 min) ────────────────────────
+    if age > RECHECK_INTERVAL:
+        result = validate_online(license_key)
 
-    # ── Cache is stale → try phoning home ────────────────────────
-    result = validate_online(license_key)
+        if result is not None:
+            # Got an online response
+            if result["valid"]:
+                cache["last_validated"] = time.time()
+                cache["expires_at"] = result.get("expires_at", expires_at)
+                save_cache(cache)
+                return True, "License valid.", False
+            else:
+                # Revoked / expired / bound elsewhere → lock NOW
+                clear_cache()
+                return False, result["message"], True
 
-    if result is not None:
-        # Got an online response
-        if result["valid"]:
-            cache["last_validated"] = time.time()
-            cache["expires_at"] = result.get("expires_at", expires_at)
-            save_cache(cache)
-            return True, "License valid.", False
-        else:
-            clear_cache()
-            return False, result["message"], True
+        # ── Offline: within 72h → allow ──────────────────────────
+        if age <= OFFLINE_MAX:
+            return True, "License valid (offline mode).", False
 
-    # ── Offline: within grace period → allow with warning ────────
-    grace = CACHE_TTL * GRACE_MULTIPLIER
-    if age <= grace:
-        return True, "License valid (offline mode).", False
+        # ── Offline: past 72h → lock ─────────────────────────────
+        return (
+            False,
+            "License check required — please connect to the internet.",
+            False,
+        )
 
-    # ── Offline: past grace → lock ───────────────────────────────
-    return (
-        False,
-        "License check required — please connect to the internet.",
-        False,
-    )
+    # ── Recently validated → allow ───────────────────────────────
+    return True, "License valid.", False
 
 
 def activate_key(license_key: str) -> tuple[bool, str]:

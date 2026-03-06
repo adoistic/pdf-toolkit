@@ -7,15 +7,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="author" content="Thothica Private Limited">
-    <meta name="copyright" content="Copyright (c) 2025-2026 Thothica Private Limited. All rights reserved.">
-    <title>PDF Toolkit</title>
+    <meta name="author" content="eBookinfotech">
+    <meta name="copyright" content="Copyright (c) 2025-2026 eBookinfotech. All rights reserved.">
+    <title>eBookinfotech — PDF Toolkit</title>
     <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
     <!-- Top Bar -->
     <header class="top-bar">
         <div class="top-bar-row">
+            <img src="/static/logo.png" alt="eBookinfotech" class="app-logo">
             <span class="app-title">PDF Toolkit</span>
             <label class="top-label">Folder:</label>
             <input type="text" id="dir-path" placeholder="Select a folder..." readonly>
@@ -24,7 +25,6 @@
             <span class="spacer"></span>
             <div class="toc-options">
                 <label><input type="checkbox" id="h1-only"> H1 only</label>
-                <label><input type="checkbox" id="count-toc" checked> Count TOC pages</label>
             </div>
         </div>
     </header>
@@ -62,11 +62,13 @@
                     <button id="save-btn" class="btn" disabled>Save</button>
                     <button id="finish-btn" class="btn btn-primary" disabled>Save &amp; Finish</button>
                     <button id="skip-current-btn" class="btn" disabled>Skip (TOC Only)</button>
+                    <span class="spacer"></span>
+                    <label class="thumb-size-label">Columns <input type="range" id="thumb-cols" min="2" max="10" value="4" step="1"><span id="thumb-cols-val">4</span></label>
                 </div>
             </div>
             <div id="page-grid" class="page-grid">
                 <div class="empty-state" id="editor-empty">
-                    <div class="empty-icon">&#128196;</div>
+                    <img src="/static/logo.png" alt="eBookinfotech" class="empty-logo">
                     <p>Select a file from the sidebar to begin editing.</p>
                 </div>
             </div>
@@ -138,21 +140,6 @@
             <div class="docx-modal-footer">
                 <button id="stop-btn" class="btn btn-danger" disabled>Stop</button>
             </div>
-        </div>
-    </div>
-
-    <!-- License Modal (non-dismissable) -->
-    <div id="license-modal" class="modal" hidden>
-        <div class="modal-backdrop"></div>
-        <div class="license-modal-content">
-            <h2>PDF Toolkit</h2>
-            <p class="license-copyright">&copy; 2025-2026 Thothica Private Limited</p>
-            <p id="license-message">Enter your license key to get started.</p>
-            <input type="text" id="license-key-input"
-                   placeholder="PDFT-XXXX-XXXX-XXXX"
-                   spellcheck="false" autocomplete="off" maxlength="19">
-            <p id="license-error" class="license-error" hidden></p>
-            <button id="license-activate-btn" class="btn btn-primary">Activate</button>
         </div>
     </div>
 

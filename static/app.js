@@ -8,90 +8,6 @@
 (function () {
   "use strict";
 
-  // ── License Gate ──────────────────────────────────────────────────
-
-  const licenseModal = document.getElementById("license-modal");
-  const licenseKeyInput = document.getElementById("license-key-input");
-  const licenseActivateBtn = document.getElementById("license-activate-btn");
-  const licenseError = document.getElementById("license-error");
-  const licenseMessage = document.getElementById("license-message");
-
-  async function checkLicense() {
-    try {
-      const resp = await fetch("/api/license/status");
-      const data = await resp.json();
-      if (data.valid) {
-        licenseModal.hidden = true;
-        return;
-      }
-      // Show license modal with the message from the server
-      licenseMessage.textContent =
-        data.message || "Enter your license key to get started.";
-      licenseModal.hidden = false;
-      licenseKeyInput.focus();
-    } catch {
-      // If the status check itself fails, show the modal
-      licenseModal.hidden = false;
-      licenseKeyInput.focus();
-    }
-  }
-
-  async function activateLicense() {
-    const key = licenseKeyInput.value.trim();
-    if (!key) {
-      showLicenseError("Please enter a license key.");
-      return;
-    }
-
-    licenseActivateBtn.disabled = true;
-    licenseActivateBtn.textContent = "Activating...";
-    licenseError.hidden = true;
-
-    try {
-      const resp = await fetch("/api/license/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
-      });
-      const data = await resp.json();
-
-      if (data.success) {
-        licenseModal.hidden = true;
-        licenseError.hidden = true;
-      } else {
-        showLicenseError(data.message || "Activation failed.");
-      }
-    } catch {
-      showLicenseError("Cannot reach the license server.");
-    } finally {
-      licenseActivateBtn.disabled = false;
-      licenseActivateBtn.textContent = "Activate";
-    }
-  }
-
-  function showLicenseError(msg) {
-    licenseError.textContent = msg;
-    licenseError.hidden = false;
-  }
-
-  licenseActivateBtn.addEventListener("click", activateLicense);
-  licenseKeyInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") activateLicense();
-  });
-
-  // Auto-format key input as XXXX-XXXX-XXXX-XXXX
-  licenseKeyInput.addEventListener("input", () => {
-    let raw = licenseKeyInput.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    let parts = [];
-    for (let i = 0; i < raw.length && parts.length < 4; i += 4) {
-      parts.push(raw.slice(i, i + 4));
-    }
-    licenseKeyInput.value = parts.join("-");
-  });
-
-  // Run license check on startup
-  checkLicense();
-
   // ── DOM refs ────────────────────────────────────────────────────
 
   // Top bar
@@ -99,8 +15,6 @@
   const browseFolderBtn = document.getElementById("browse-folder-btn");
   const fileCountLabel = document.getElementById("file-count");
   const h1Only = document.getElementById("h1-only");
-  const countToc = document.getElementById("count-toc");
-
   // Sidebar
   const fileList = document.getElementById("file-list");
   const sidebarEmpty = document.getElementById("sidebar-empty");
@@ -118,6 +32,15 @@
   const skipCurrentBtn = document.getElementById("skip-current-btn");
   const pageGrid = document.getElementById("page-grid");
   const editorEmpty = document.getElementById("editor-empty");
+  const thumbColsSlider = document.getElementById("thumb-cols");
+  const thumbColsVal = document.getElementById("thumb-cols-val");
+
+  // Thumbnail columns slider
+  pageGrid.style.setProperty("--thumb-cols", thumbColsSlider.value);
+  thumbColsSlider.addEventListener("input", function () {
+    pageGrid.style.setProperty("--thumb-cols", thumbColsSlider.value);
+    thumbColsVal.textContent = thumbColsSlider.value;
+  });
 
   // Status bar
   const statusText = document.getElementById("status-text");
@@ -485,7 +408,7 @@
         body: JSON.stringify({
           name,
           h1_only: h1Only.checked,
-          count_toc: countToc.checked,
+
         }),
       });
       const data = await res.json();
@@ -572,7 +495,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           h1_only: h1Only.checked,
-          count_toc: countToc.checked,
+
         }),
       });
       const data = await res.json();
@@ -1338,7 +1261,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           h1_only: h1Only.checked,
-          count_toc: countToc.checked,
+
         }),
       });
       const data = await res.json();
@@ -1475,7 +1398,7 @@
           dir: folderPath,
           mode: mode,
           h1_only: h1Only.checked,
-          count_toc: countToc.checked,
+
         }),
       });
 
